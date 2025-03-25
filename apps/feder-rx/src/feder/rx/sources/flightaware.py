@@ -1,0 +1,2 @@
+class FlightAwareSource:
+    NAME = 'flightaware'

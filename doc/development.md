@@ -3,6 +3,25 @@
 ## Package layout
 
 
+## Package setup
+
+After cloning the repository, do the following to set up a virtual
+environment, install all dependencies and set up all the workspace packages as
+editable installs:
+
+```shell
+uv sync --all-packages
+```
+
+You can check that it worked by doing
+
+```shell
+uv run feder-rx --help
+```
+
+in the top-level directory of the repository. If all is well, you should see a
+help message from the Feder data receiver.
+
 ## Building a distributable API package
 
 The API code is in the `api` directory with a project name of "`feder`" to

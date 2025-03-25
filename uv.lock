@@ -152,12 +152,14 @@ name = "feder-ingest"
 version = "0.1.0"
 source = { editable = "apps/feder-ingest" }
 dependencies = [
+    { name = "click" },
     { name = "feder-common" },
     { name = "feder-server" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1.8" },
     { name = "feder-common", editable = "libs/common" },
     { name = "feder-server", editable = "libs/server" },
 ]
@@ -167,12 +169,14 @@ name = "feder-monitor"
 version = "0.1.0"
 source = { editable = "apps/feder-monitor" }
 dependencies = [
+    { name = "click" },
     { name = "feder-common" },
     { name = "feder-server" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1.8" },
     { name = "feder-common", editable = "libs/common" },
     { name = "feder-server", editable = "libs/server" },
 ]
@@ -207,12 +211,14 @@ name = "feder-rx"
 version = "0.1.0"
 source = { editable = "apps/feder-rx" }
 dependencies = [
+    { name = "click" },
     { name = "feder-common" },
     { name = "feder-server" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1.8" },
     { name = "feder-common", editable = "libs/common" },
     { name = "feder-server", editable = "libs/server" },
 ]
