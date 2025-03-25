@@ -52,12 +52,13 @@ and then this in Python:
 ``` python
 from datetime import datetime
 from feder.api import get_flights
-get_flights(time=datetime(2025, 3, 20, 18, 0), lat=(35.0, 40.0), lon=(-100.0, -95.0))
+get_flights(time=datetime(2025, 3, 20, 18, 0), lat=(35.0, 40.0), lon=(-100.0, -95.0), limit=10)
 ```
 
-This will return a Python array of `Trajectory` objects for all flights
-crossing the given latitude/longitude bounding box in the one hour window
-starting at the given time (all times in UTC).
+This will return a Python array of 10
+[`Trajectory`](doc/api-reference.md#Trajectory) objects of flights crossing
+the given latitude/longitude bounding box in the one hour window starting at
+the given time (all times in UTC).
 
 The API efficiently supports a range of query options and data return formats.
 See the [tutorial](doc/api-tutorial.md) or the [API

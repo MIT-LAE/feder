@@ -8,17 +8,17 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
-    "common",
-    "server",
+    "feder-common",
+    "feder-server",
 ]
 
 [project.scripts]
-feder-rx = "feder_rx:main"
+feder-rx = "feder.rx:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-common = { workspace = true }
-server = { workspace = true }
+feder-common = { workspace = true }
+feder-server = { workspace = true }
