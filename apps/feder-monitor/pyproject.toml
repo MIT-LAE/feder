@@ -1,0 +1,24 @@
+[project]
+name = "feder-monitor"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Ian Ross", email = "iross@mit.edu" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "common",
+    "server",
+]
+
+[project.scripts]
+feder-monitor = "feder_monitor:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+common = { workspace = true }
+server = { workspace = true }
