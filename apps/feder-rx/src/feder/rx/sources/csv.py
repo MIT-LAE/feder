@@ -2,10 +2,12 @@ import glob
 import itertools
 import logging
 import os
+from queue import Queue
 import sys
 from typing import TYPE_CHECKING
 
 from feder.server.sources import CSV_SOURCE_NAME
+from . import Source
 
 
 if TYPE_CHECKING:
@@ -18,17 +20,14 @@ logger = logging.getLogger(__name__)
 # TODO: This should be derived from some base class that handles all the
 # database stuff, as well as any queuing/asynchrony.
 
-class CSVSource:
+class CSVSource(Source):
     NAME = CSV_SOURCE_NAME
 
-    def __init__(self, config: 'Config'):
-        self.config = config
+    def __init__(self, config: 'Config', queue: Queue, *files: str):
+        super().__init__(config, queue, files)
         self.staging_path = os.path.join(
             self.config.scratch_directory, self.NAME + '.db'
         )
-
-    def purge_staging(self):
-        logger.info('Purging staging for source "%s"', self.NAME)
 
     def run(self, *csv_files: str):
         expanded_csv_files = list(itertools.chain.from_iterable(

@@ -40,6 +40,7 @@ class Config:
         try:
             self._init_paths()
             self._init_rabbitmq()
+            self._init_monitoring()
             self._init_sources()
         except KeyError as exc:
             logger.critical(exc.args[0])
@@ -48,12 +49,21 @@ class Config:
             logger.critical(exc.args[0])
             sys.exit(1)
 
-    def source_enabled(self, source: str) -> bool:
-        return bool(self._source_enabled[source])
+    def enabled(self, source: str) -> bool:
+        return self._source_enabled[source]
+
+    def completion_delay(self, source: str) -> Timedelta:
+        return self._source_completion_delay[source]
+
+    def completion_interval(self, source: str) -> Timedelta:
+        return self._source_completion_interval[source]
+
+    def data_lag(self, source: str) -> Timedelta:
+        return self._source_data_lag[source]
 
     def _init_paths(self):
-        self.data_directory: str = self._get_str('paths', 'data_directory')
-        self.scratch_directory: str = self._get_str('paths', 'scratch_directory')
+        self.data_directory: str = self._get_str('paths', 'data-directory')
+        self.scratch_directory: str = self._get_str('paths', 'scratch-directory')
 
     def _init_rabbitmq(self):
         self.rabbitmq_host: str = self._get_str('rabbitmq', 'host')
@@ -61,20 +71,38 @@ class Config:
         self.rabbitmq_username: str = self._get_str('rabbitmq', 'username')
         self.rabbitmq_password: str = self._get_str('rabbitmq', 'password')
 
+    def _init_monitoring(self):
+        self.heartbeat_interval: Timedelta = self._get_interval(
+            'monitoring', 'heartbeat-interval', default=_td(Timedelta('30 seconds'))
+        )
+        self.monitoring_from_email: str = self._get_str('monitoring', 'from-email')
+        self.monitoring_from_name: str = self._get_str('monitoring', 'from-name')
+        self.monitoring_to_email: str = self._get_str('monitoring', 'to-email')
+        self.monitoring_to_name: str = self._get_str('monitoring', 'to-name')
+        self.monitoring_mail_backend: str = self._get_str('monitoring', 'mail-backend')
+        self.monitoring_mailjet_api_key: str = self._get_str('monitoring', 'mailjet-api-key')
+        self.monitoring_mailjet_secret_key: str = self._get_str('monitoring', 'mailjet-secret-key')
+
     def _init_sources(self):
         def_comp_delay: Timedelta = self._get_interval(
-            'sources', 'completion_delay', default=_td(Timedelta('15 minutes'))
+            'sources', 'completion-delay', default=_td(Timedelta('15 minutes'))
+        )
+        def_comp_interval: Timedelta = self._get_interval(
+            'sources', 'completion-interval', default=_td(Timedelta('60 seconds'))
         )
         def_data_lag: Timedelta = self._get_interval(
-            'sources', 'data_lag', default=_td(Timedelta(0))
+            'sources', 'data-lag', default=_td(Timedelta(0))
         )
 
         self._source_enabled: dict[str, bool] = self._get_sources_bool('enabled', default=False)
         self._source_completion_delay: dict[str, Timedelta] = self._get_sources_interval(
-            'completion_delay', default=def_comp_delay
+            'completion-delay', default=def_comp_delay
+        )
+        self._source_completion_interval: dict[str, Timedelta] = self._get_sources_interval(
+            'completion-interval', default=def_comp_interval
         )
         self._source_data_lag: dict[str, Timedelta] = self._get_sources_interval(
-            'data_lag', default=def_data_lag
+            'data-lag', default=def_data_lag
         )
 
         self._source_credentials: dict[str, Any] = {}
@@ -85,7 +113,7 @@ class Config:
                 OPENSKY_STATE_VECTOR_SOURCE_NAME
         ]:
             if self._source_enabled[s]:
-                api_key = self._get_str(['source', s], 'api_key')
+                api_key = self._get_str(['source', s], 'api-key')
                 if api_key is not None:
                     self._source_credentials[s] = dict(api_key=api_key)
 
