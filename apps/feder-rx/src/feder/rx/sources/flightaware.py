@@ -1,2 +1,5 @@
+from feder.server.sources import FLIGHTAWARE_SOURCE_NAME
+
+
 class FlightAwareSource:
-    NAME = 'flightaware'
+    NAME = FLIGHTAWARE_SOURCE_NAME

@@ -1,6 +1,11 @@
+from feder.server.sources import (
+    OPENSKY_SOURCE_NAME, OPENSKY_STATE_VECTOR_SOURCE_NAME
+)
+
+
 class OpenSkySource:
-    NAME = 'opensky'
+    NAME = OPENSKY_SOURCE_NAME
 
 
 class OpenSkyStateVectorSource:
-    NAME = 'opensky-state-vectors'
+    NAME = OPENSKY_STATE_VECTOR_SOURCE_NAME

@@ -7,7 +7,9 @@ authors = [
     { name = "Ian Ross", email = "iross@mit.edu" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "pandas>=2.2.3",
+]
 
 [build-system]
 requires = ["hatchling"]
