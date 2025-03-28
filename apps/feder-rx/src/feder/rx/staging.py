@@ -28,7 +28,6 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
     cur = conn.cursor()
     cur.execute("""CREATE TABLE IF NOT EXISTS fixes (
       id INTEGER PRIMARY KEY,
-      source TEXT NOT NULL,
       source_id TEXT NOT NULL,
       transponder_id TEXT NOT NULL,
       time INTEGER NOT NULL,
@@ -37,6 +36,10 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
       lat FLOAT NOT NULL,
       lon FLOAT NOT NULL,
       alt FLOAT NOT NULL,
+      alt_gnss FLOAT,
       heading FLOAT,
       on_ground BOOL DEFAULT FALSE
     )""")
+
+    cur.execute("""CREATE UNIQUE INDEX IF NOT EXISTS fixes_idx ON
+                     fixes (source, source_id, time)""")

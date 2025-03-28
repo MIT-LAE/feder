@@ -25,9 +25,6 @@ class CSVSource(Source):
 
     def __init__(self, config: 'Config', queue: Queue, *files: str):
         super().__init__(config, queue, files)
-        self.staging_path = os.path.join(
-            self.config.scratch_directory, self.NAME + '.db'
-        )
 
     def run(self, *csv_files: str):
         expanded_csv_files = list(itertools.chain.from_iterable(

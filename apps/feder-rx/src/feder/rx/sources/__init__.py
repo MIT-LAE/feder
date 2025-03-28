@@ -1,5 +1,5 @@
 import os
-from queue import Queue
+from queue import PriorityQueue
 from threading import Thread
 from typing import TYPE_CHECKING
 
@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 class Source(Thread):
     NAME = None
 
-    def __init__(self, config: 'Config', queue: Queue, *files: str):
+    def __init__(self, config: 'Config', queue: PriorityQueue, *files: str):
         super().__init__()
         self.config = config
         self.queue = queue
