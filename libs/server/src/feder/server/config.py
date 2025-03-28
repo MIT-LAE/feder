@@ -20,21 +20,24 @@ logger = logging.getLogger(__name__)
 
 
 class Config:
-    def __init__(self, config_file: str | None):
-        config_file = config_file or os.environ.get('FEDER_CONFIG')
-        if config_file is None:
-            logger.critical(
-                'missing configuration file (must be given on command line '
-                'or in the FEDER_CONFIG environment variable).'
-            )
-            sys.exit(1)
-        if not os.path.exists(config_file):
-            logger.critical('configuration file does not exist.')
-            sys.exit(1)
-        self.config_file = config_file
+    def __init__(self, config_file: str | None = None, config_text: str | None = None):
+        if config_text is None:
+            config_file = config_file or os.environ.get('FEDER_CONFIG')
+            if config_file is None:
+                logger.critical(
+                    'missing configuration file (must be given on command line '
+                    'or in the FEDER_CONFIG environment variable).'
+                )
+                sys.exit(1)
+            if not os.path.exists(config_file):
+                logger.critical('configuration file does not exist.')
+                sys.exit(1)
 
-        with open(config_file, 'rb') as fp:
-            self.raw = tomllib.load(fp)
+            with open(config_file, 'rb') as fp:
+                self.raw = tomllib.load(fp)
+        else:
+            self.raw = tomllib.loads(config_text)
+
         logger.debug(self.raw)
 
         try:
