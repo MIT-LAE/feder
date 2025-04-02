@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "pandas>=2.2.3",
+    "protobuf>=6.30.2",
 ]
 
 [build-system]

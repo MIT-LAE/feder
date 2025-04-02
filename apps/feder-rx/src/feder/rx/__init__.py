@@ -14,7 +14,7 @@ from .sources.flightaware import FlightAwareSource
 from .sources.opensky import OpenSkySource, OpenSkyStateVectorSource
 from .timers import HeartbeatTimerThread, CompletionTimerThread
 from .processor import Processor
-from .staging import DB
+from .db import DB
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,8 @@ SOURCES = [
 ]
 
 SOURCES_BY_NAME = {s.NAME: s for s in SOURCES}
+
+QUEUE_SIZE = 100  # Command queue size.
 
 
 @click.command()
@@ -48,25 +50,37 @@ SOURCES_BY_NAME = {s.NAME: s for s in SOURCES}
     type=click.Choice([s.NAME for s in SOURCES]),
     required=True
 )
-@click.argument('files', nargs=-1)
+@click.argument('args', nargs=-1)
 def run(
         debug: bool, config: str | None, purge_staging: bool,
-        source: str, files: tuple[str]
+        source: str, args: tuple[str, ...]
 ) -> None:
     logging_setup(debug)
 
     # Process configuration file.
     cfg = Config(config)
 
-    # Check that the source is enabled.
+    # Are we running in historical mode or live mode? Historical mode means
+    # that we need to provide information about the historical period to
+    # process. That usually means a start and end timestamp, but for a
+    # file-based receiver like the CSV processor, it will be a list of file
+    # globs.
+    historical = len(args) != 0
+
+    # Check that the source is enabled for live updates (signalled by not
+    # passing in any arguments to run as a historical update process).
     # TODO: Might be better not to do this, but use systemd's enable/disable
     # functionality?
-    if not cfg.enabled(source):
-        logger.critical('source "%s" not enabled', source)
+    if not historical and not cfg.enabled(source):
+        logger.critical('source "%s" not enabled for live updates', source)
         sys.exit(1)
 
-    # Connect to staging database for current source.
-    db = DB(cfg, source)
+    # Connect to staging database for current source. For historical
+    # processing jobs, a unique name is used for the staging database, since
+    # the database will be completely consumed at the end of the processing
+    # job, and since we don't want historical processing to interfere with any
+    # live receivers.
+    db = DB(cfg, source, historical)
 
     # We may sometimes want to purge the staging database before starting
     # (mostly for debugging).
@@ -84,19 +98,19 @@ def run(
     # rate that data comes in so we need some mechanism to decouple the source
     # handling from the communication with the ingester via RabbitMQ. We use a
     # queue to do this.
-    queue = PriorityQueue()
+    queue = PriorityQueue(maxsize=QUEUE_SIZE)
+
+    # Set up data source handler.
+    data_source = SOURCES_BY_NAME[source](cfg, queue, *args)
 
     # Set up heartbeat and completion timer threads.
     heartbeat_timer_thread = HeartbeatTimerThread(cfg, queue)
     completion_timer_thread = CompletionTimerThread(cfg, queue, source)
 
-    # Set up data source handler.
-    # source = SOURCES_BY_NAME[source](cfg, queue, *files)
-
     # Start all separate threads.
     heartbeat_timer_thread.start()
     completion_timer_thread.start()
-    # source.start()
+    data_source.start()
 
     # Signal handling for tidy cleanup.
     def stop(_signum, _frame):
@@ -105,13 +119,17 @@ def run(
     signal.signal(signal.SIGTERM, stop)
 
     # Process messages from queue.
-    processor = Processor(db, queue)
+    processor = Processor(cfg, source, historical, db, queue)
     processor.run()
 
     # If we get here, the data source handler has already stopped, so we just
     # need to clean up the timer threads.
+    data_source.stop()
     heartbeat_timer_thread.stop()
     completion_timer_thread.stop()
+
+    if historical:
+        db.remove()
 
 
 if __name__ == '__main__':

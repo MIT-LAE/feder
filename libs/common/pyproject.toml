@@ -7,7 +7,9 @@ authors = [
     { name = "Ian Ross", email = "iross@mit.edu" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "protobuf>=6.30.2",
+]
 
 [build-system]
 requires = ["hatchling"]

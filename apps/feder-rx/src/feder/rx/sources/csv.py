@@ -1,41 +1,68 @@
-import glob
-import itertools
+import csv
+from datetime import datetime
 import logging
-import os
-from queue import Queue
-import sys
-from typing import TYPE_CHECKING
 
 from feder.server.sources import CSV_SOURCE_NAME
-from . import Source
-
-
-if TYPE_CHECKING:
-    from feder.server import Config
+from ..commands import SourcePositionCommand
+from . import FileSource
 
 
 logger = logging.getLogger(__name__)
 
 
-# TODO: This should be derived from some base class that handles all the
-# database stuff, as well as any queuing/asynchrony.
+# Helper class for handling non-fixed column order in CSV files.
 
-class CSVSource(Source):
+class ColIndex:
+    def __init__(self):
+        self.complete = False
+
+    def fill(self, row) -> bool:
+        if self.complete:
+            return False
+        self.id_col = row.index('id')
+        self.hexid_col = row.index('hexid')
+        self.clock_col = row.index('clock')
+        self.ident_col = row.index('ident')
+        self.aircrafttype_col = row.index('aircrafttype')
+        self.lat_col = row.index('lat')
+        self.lon_col = row.index('lon')
+        self.alt_col = row.index('alt')
+        self.alt_gnss_col = row.index('alt_gnss')
+        self.heading_col = row.index('heading')
+        self.air_ground_col = row.index('air_ground')
+        return True
+
+
+class CSVSource(FileSource):
     NAME = CSV_SOURCE_NAME
 
-    def __init__(self, config: 'Config', queue: Queue, *files: str):
-        super().__init__(config, queue, files)
+    def process_file(self, filename):
+        logger.info('Processing CSV: %s', filename)
 
-    def run(self, *csv_files: str):
-        expanded_csv_files = list(itertools.chain.from_iterable(
-            (glob.glob(f) if '*' in f else [f])
-            for f in list(csv_files)
-        ))
+        # Helper for value conversion.
+        def n(r, c, xform):
+            return None if r[c] == '' else xform(r[c])
 
-        if len(expanded_csv_files) == 0:
-            logger.error('No files provided to CSV source!')
-            sys.exit(1)
+        with open(filename, newline='') as fp:
+            idx = ColIndex()
 
-        self.csv_files = expanded_csv_files
-        for f in self.csv_files:
-            logger.info('Processing %s', f)
+            for row in csv.reader(fp):
+                # Columns aren't in a fixed order so use a helper to handle
+                # the column extraction.
+                if idx.fill(row):
+                    continue
+
+                # One source position command per row.
+                self.queue.put(SourcePositionCommand(
+                    source_id = row[idx.id_col],
+                    transponder_id = row[idx.hexid_col],
+                    time = datetime.fromtimestamp(int(row[idx.clock_col])),
+                    callsign = row[idx.ident_col],
+                    aircrafttype = n(row, idx.aircrafttype_col, str),
+                    lat = float(row[idx.lat_col]),
+                    lon = float(row[idx.lon_col]),
+                    alt = n(row, idx.alt_col, int),
+                    alt_gnss = n(row, idx.alt_gnss_col, int),
+                    heading = n(row, idx.heading_col, float),
+                    on_ground = row[idx.air_ground_col] == 'G'
+                ))

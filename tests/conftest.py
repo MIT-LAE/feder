@@ -1,9 +1,10 @@
+from datetime import datetime, timedelta
 import os
 
 import pytest
 
 from feder.server.config import Config
-from feder.rx.staging import DB
+from feder.rx.db import DB
 
 
 TEST_CONFIG = """
@@ -65,7 +66,7 @@ def config(tmp_path):
     return cfg
 
 
-TEST_NOW = 1743184519
+TEST_NOW = datetime(2025, 4, 1, 12, 0)
 
 # TIMELINE:
 #
@@ -83,37 +84,40 @@ TEST_NOW = 1743184519
 #   -65  source-0001
 #    -5  source-0001
 
+def tminus(seconds):
+    return TEST_NOW - timedelta(seconds=seconds)
+
 TEST_VALUES = [
     (
         'source-0001', 'ABCDEF', 'DAL1234',
         [
-            (TEST_NOW - 125, 40.1, -94.5, 35000),
-            (TEST_NOW -  60, 40.2, -94.4, 35000),
-            (TEST_NOW -   5, 40.3, -9435, 35000),
+            (tminus(125), 40.1, -94.5, 35000),
+            (tminus( 60), 40.2, -94.4, 35000),
+            (tminus(  5), 40.3, -9435, 35000),
         ]
     ),
     (
         'source-0002', 'BCDEF0', 'UPS231',
         [
-            (TEST_NOW - 1050, 40.1, -94.5, 35000),
-            (TEST_NOW -  990, 40.2, -94.4, 35000),
-            (TEST_NOW -  930, 40.3, -9435, 35000),
+            (tminus(1050), 40.1, -94.5, 35000),
+            (tminus( 990), 40.2, -94.4, 35000),
+            (tminus( 930), 40.3, -9435, 35000),
         ]
     ),
     (
         'source-0003', 'CDEF01', 'UAL4747',
         [
-            (TEST_NOW - 920, 40.1, -94.5, 35000),
-            (TEST_NOW - 860, 40.2, -94.4, 35000),
-            (TEST_NOW - 800, 40.3, -9435, 35000),
+            (tminus(920), 40.1, -94.5, 35000),
+            (tminus(860), 40.2, -94.4, 35000),
+            (tminus(800), 40.3, -9435, 35000),
         ]
     ),
     (
         'source-0004', 'DEF012', 'BA1134',
         [
-            (TEST_NOW - 1020, 40.1, -94.5, 35000),
-            (TEST_NOW -  960, 40.2, -94.4, 35000),
-            (TEST_NOW -  920, 40.3, -9435, 35000),
+            (tminus(1020), 40.1, -94.5, 35000),
+            (tminus( 960), 40.2, -94.4, 35000),
+            (tminus( 920), 40.3, -9435, 35000),
         ]
     )
 ]
@@ -121,22 +125,15 @@ TEST_VALUES = [
 
 @pytest.fixture
 def db(config):
-    sql = """
-      INSERT INTO fixes
-        (source_id, transponder_id, callsign, time, lat, lon, alt)
-      VALUES
-        (?, ?, ?, ?, ?, ?, ?)
-    """
-
     db = DB(config, 'test')
 
-    cur = db.conn.cursor()
     for (source_id, transponder_id, callsign, points) in TEST_VALUES:
         for (time, lat, lon, alt) in points:
-            cur.execute(
-                sql, (source_id, transponder_id, callsign, time, lat, lon, alt)
+            db.save_position(
+                source_id=source_id, transponder_id=transponder_id,
+                time=time, callsign=callsign, aircrafttype=None,
+                lat=lat, lon=lon, alt=alt, alt_gnss=None, heading=None,
+                on_ground=False
             )
-
-    db.conn.commit()
 
     return db

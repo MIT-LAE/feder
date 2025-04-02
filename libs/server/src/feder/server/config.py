@@ -64,6 +64,9 @@ class Config:
     def data_lag(self, source: str) -> Timedelta:
         return self._source_data_lag[source]
 
+    def credentials(self, source: str) -> dict[str, Any]:
+        return self._source_credentials[source]
+
     def _init_paths(self):
         self.data_directory: str = self._get_str('paths', 'data-directory')
         self.scratch_directory: str = self._get_str('paths', 'scratch-directory')

@@ -1,0 +1,25 @@
+message Points {
+    // Timestamps: POSIX timestamps (integer seconds).
+    repeated uint64 time = 1 [packed = true];
+
+    // Longitude.
+    repeated float lon = 2 [packed = true];
+
+    // Latitude.
+    repeated float lat = 3 [packed = true];
+
+    // For the alt, alt_gnss and heading fields, values of -1 represent
+    // missing data.
+
+    // Barometric altitude: integer feet.
+    repeated int32 alt = 4 [packed = true];
+
+    // GNSS altitude: integer feet.
+    repeated int32 alt_gnss = 5 [packed = true];
+
+    // Heading: degrees clockwise from North.
+    repeated float heading = 6 [packed = true];
+
+    // Air/ground flag.
+    repeated bool on_ground = 7 [packed = true];
+}

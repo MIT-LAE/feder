@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from feder.rx.commands import (
     CompleteCommand, HeartbeatCommand,
     SourceDoneCommand, SourceErrorCommand, SourcePositionCommand,
@@ -8,7 +10,12 @@ from feder.rx.commands import (
 def test_command_ordering():
     # This is important for the priority queue handling in the receiver.
 
-    source_pos = SourcePositionCommand({'dummy': 'DUMMY'})
+    source_pos = SourcePositionCommand(
+        source_id='DUMMY', transponder_id='DUMMY',
+        time=datetime(2025, 4, 1, 12, 0), callsign='DUMMY', aircrafttype=None,
+        lat=41.0, lon=-95.0, alt=35000, alt_gnss=None, heading=None,
+        on_ground=False
+    )
     source_error = SourceErrorCommand('this is an error')
     source_done = SourceDoneCommand()
     heartbeat = HeartbeatCommand()

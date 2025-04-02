@@ -12,6 +12,7 @@ dependencies = [
     "feder-common",
     "feder-server",
     "pandas>=2.2.3",
+    "requests>=2.32.3",
 ]
 
 [project.scripts]

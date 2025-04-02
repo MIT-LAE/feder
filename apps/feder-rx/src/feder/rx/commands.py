@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from functools import total_ordering
 
 
@@ -20,13 +21,22 @@ class Command:
 class SourcePositionCommand(Command):
     PRIORITY = 2
 
-    # TODO: Refine this.
-    data: dict[str, str]
+    source_id: str
+    transponder_id: str
+    time: datetime
+    callsign: str
+    aircrafttype: str | None
+    lat: float
+    lon: float
+    alt: int | None
+    alt_gnss: int | None
+    heading: float | None
+    on_ground: bool
 
 
 @dataclass
 class SourceErrorCommand(Command):
-    PRIORITY = 1
+    PRIORITY = 0
 
     message: str
 
