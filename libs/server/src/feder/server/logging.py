@@ -9,4 +9,5 @@ def logging_setup(debug: bool = False) -> None:
         format='%(asctime)s.%(msecs)03d  %(levelname)s/%(name)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
+    logging.getLogger('pika').setLevel(logging.WARNING)
     logging.captureWarnings(True)

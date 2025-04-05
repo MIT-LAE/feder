@@ -5,14 +5,17 @@ import sys
 
 import click
 
-from feder.server import Config, logging_setup
+from feder.server import (
+    logging_setup, Config, RMQ, rmq_parameters,
+    RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE,
+    TimerThread
+)
 
-from .commands import StopCommand
+from .commands import StopCommand, HeartbeatCommand, CompleteCommand
 from .sources.contrails_api import ContrailsAPISource
 from .sources.csv import CSVSource
 from .sources.flightaware import FlightAwareSource
 from .sources.opensky import OpenSkySource, OpenSkyStateVectorSource
-from .timers import HeartbeatTimerThread, CompletionTimerThread
 from .processor import Processor
 from .db import DB
 
@@ -30,6 +33,20 @@ SOURCES = [
 SOURCES_BY_NAME = {s.NAME: s for s in SOURCES}
 
 QUEUE_SIZE = 100  # Command queue size.
+
+
+class HeartbeatTimerThread(TimerThread):
+    def __init__(self, cfg: Config, queue: PriorityQueue):
+        super().__init__(
+            queue, cfg.heartbeat_interval.seconds, HeartbeatCommand
+        )
+
+
+class CompletionTimerThread(TimerThread):
+    def __init__(self, cfg: Config, queue: PriorityQueue, source: str):
+        super().__init__(
+            queue, cfg.completion_interval(source).seconds, CompleteCommand
+        )
 
 
 @click.command()
@@ -87,9 +104,6 @@ def run(
     if purge_staging:
         db.purge()
 
-    # Connect to RabbitMQ.
-    # TODO: RabbitMQ connection.
-
     # Set up the command queue used to decouple the data source handler and
     # trajectory completion and RabbitMQ connection handling. We need to
     # handle all these things in parallel. For the CSV source, access to the
@@ -100,6 +114,14 @@ def run(
     # queue to do this.
     queue = PriorityQueue(maxsize=QUEUE_SIZE)
 
+    # Set up RabbitMQ handler.
+    rmq = RMQ(
+        f'rx-{source}',
+        rmq_parameters(cfg),
+        queue,
+        [RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE]
+    )
+
     # Set up data source handler.
     data_source = SOURCES_BY_NAME[source](cfg, queue, *args)
 
@@ -108,6 +130,7 @@ def run(
     completion_timer_thread = CompletionTimerThread(cfg, queue, source)
 
     # Start all separate threads.
+    rmq.start()
     heartbeat_timer_thread.start()
     completion_timer_thread.start()
     data_source.start()
@@ -119,14 +142,15 @@ def run(
     signal.signal(signal.SIGTERM, stop)
 
     # Process messages from queue.
-    processor = Processor(cfg, source, historical, db, queue)
+    processor = Processor(cfg, source, historical, db, queue, rmq)
     processor.run()
 
     # If we get here, the data source handler has already stopped, so we just
-    # need to clean up the timer threads.
+    # need to clean up the timer threads and RabbitMQ.
     data_source.stop()
     heartbeat_timer_thread.stop()
     completion_timer_thread.stop()
+    rmq.stop()
 
     if historical:
         db.remove()

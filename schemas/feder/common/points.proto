@@ -2,20 +2,20 @@ message Points {
     // Timestamps: POSIX timestamps (integer seconds).
     repeated uint64 time = 1 [packed = true];
 
-    // Longitude.
+    // Longitude: WGS-84 decimal degrees.
     repeated float lon = 2 [packed = true];
 
-    // Latitude.
+    // Latitude: WGS-84 decimal degrees.
     repeated float lat = 3 [packed = true];
 
-    // For the alt, alt_gnss and heading fields, values of -1 represent
-    // missing data.
+    // For the alt, alt_gnss and heading fields, any value less than zero
+    // represents missing data.
 
-    // Barometric altitude: integer feet.
-    repeated int32 alt = 4 [packed = true];
+    // Barometric altitude: meters relative to MSL.
+    repeated float alt = 4 [packed = true];
 
-    // GNSS altitude: integer feet.
-    repeated int32 alt_gnss = 5 [packed = true];
+    // GNSS altitude: meters relative to WGS-84.
+    repeated float alt_gnss = 5 [packed = true];
 
     // Heading: degrees clockwise from North.
     repeated float heading = 6 [packed = true];

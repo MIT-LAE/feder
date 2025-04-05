@@ -12,8 +12,10 @@ message Trajectory {
 message ReceiverHeartbeat {
     required string source = 1;
     required uint64 time = 2;
-    required uint32 n_fixes_in_db = 3;
-    required uint64 last_fix_time = 4;
+    required uint32 n_points_in_db = 3;
+    required uint32 n_flights_in_db = 4;
+    required uint64 last_point_in_db_time = 5;
+    required uint64 n_trajectories_sent = 6;
 }
 
 message IngesterHeartbeat {

@@ -115,6 +115,12 @@ class DB:
             ))
         return pd.DataFrame(rows).convert_dtypes()
 
+    def delete_trajectory(self, source_id: str) -> None:
+        sql = 'DELETE FROM fixes FROM fixes WHERE source_id = ?'
+        cur = self.conn.cursor()
+        cur.execute(sql, (source_id, ))
+        self.conn.commit()
+
     def _ensure_schema(self) -> None:
         cur = self.conn.cursor()
         cur.execute("""CREATE TABLE IF NOT EXISTS fixes (
