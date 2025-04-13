@@ -3,12 +3,13 @@ import logging
 from queue import PriorityQueue
 
 from feder.server import Config, RMQ
+import feder.server.rmq as rmq
 from feder.server.messaging import build_trajectory_message
 from .commands import (
     SourcePositionCommand, SourceErrorCommand, SourceDoneCommand,
-    HeartbeatCommand,
+    IngesterStatusCommand,
     CompleteCommand, TrajectoryCommand,
-    StopCommand
+    StopCommand, RMQCommand
 )
 from .db import DB
 
@@ -87,9 +88,9 @@ class Processor:
                     print('STOP command')
                     done = True
 
-                case HeartbeatCommand():
-                    print('HEARTBEAT command')
-                    self.send_heartbeat()
+                case IngesterStatusCommand(live):
+                    print(f'INGESTER-STATUS command: {"OK" if live else "FAILED"}')
+                    # TODO: Handle changes in ingester status here.
 
                 case CompleteCommand():
                     print('COMPLETE command')
@@ -123,29 +124,38 @@ class Processor:
                     if trajectory_command_count == 0 and done_pending:
                         done = True
 
-                # TODO: WHAT ABOUT COMPARISON FOR THESE? IT'S A PriorityQueue!
-                case RMQ.Ack(message_number):
-                    logger.info(f'RMQ ACK: {message_number}')
+                case RMQCommand() as cmd:
+                    msg = cmd.message
+                    match msg.message_type:
+                        case rmq.MessageType.ACK:
+                            message_number = msg.delivery_tag
+                            logger.info(f'RMQ ACK: {message_number}')
 
-                    # If publication to RabbitMQ was successful, delete all
-                    # position fixes from the database for the related source
-                    # ID.
-                    if message_number in pending_rmq_messages:
-                        source_id = pending_rmq_messages[message_number]
-                        self.db.delete_trajectory(source_id)
-                        del pending_rmq_messages[message_number]
+                            # If publication to RabbitMQ was successful, delete all
+                            # position fixes from the database for the related source
+                            # ID.
+                            if message_number in pending_rmq_messages:
+                                source_id = pending_rmq_messages[message_number]
+                                self.db.delete_trajectory(source_id)
+                                del pending_rmq_messages[message_number]
 
-                # TODO: WHAT ABOUT COMPARISON FOR THESE? IT'S A PriorityQueue!
-                case RMQ.Nack(message_number):
-                    logger.info(f'RMQ NACK: {message_number}')
+                        case rmq.MessageType.NACK:
+                            message_number = msg.delivery_tag
+                            logger.info(f'RMQ NACK: {message_number}')
 
-                    # If publication to RabbitMQ was unsuccessful, don't
-                    # delete position fixes from the database for the related
-                    # source ID. They will be picked up again in the next
-                    # trajectory completion cycle.
-                    if message_number in pending_rmq_messages:
-                        source_id = pending_rmq_messages[message_number]
-                        del pending_rmq_messages[message_number]
+                            # If publication to RabbitMQ was unsuccessful, don't
+                            # delete position fixes from the database for the related
+                            # source ID. They will be picked up again in the next
+                            # trajectory completion cycle.
+                            if message_number in pending_rmq_messages:
+                                source_id = pending_rmq_messages[message_number]
+                                del pending_rmq_messages[message_number]
+
+                        case _:
+                            logger.warning(
+                                'unexpected RMQ data message on exchange "%s"',
+                                msg.exchange
+                            )
 
     def identify_complete_trajectories(self) -> list[str]:
         # For historical processing jobs, we use the time of the last position
@@ -179,6 +189,7 @@ class Processor:
         # for ACK/NACK processing.
         return self.rmq.send('trajectory', payload)
 
+    # TODO: Do this stuff in response to liveness RPC requests instead.
     def send_heartbeat(self):
         # Collect statistics from source and database for heartbeat message.
 

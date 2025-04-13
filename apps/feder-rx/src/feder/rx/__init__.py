@@ -1,4 +1,5 @@
 import logging
+import os
 from queue import PriorityQueue
 import signal
 import sys
@@ -11,7 +12,9 @@ from feder.server import (
     TimerThread
 )
 
-from .commands import StopCommand, HeartbeatCommand, CompleteCommand
+from .commands import (
+    StopCommand, IngesterStatusCommand, CompleteCommand, RMQCommand
+)
 from .sources.contrails_api import ContrailsAPISource
 from .sources.csv import CSVSource
 from .sources.flightaware import FlightAwareSource
@@ -35,11 +38,11 @@ SOURCES_BY_NAME = {s.NAME: s for s in SOURCES}
 QUEUE_SIZE = 100  # Command queue size.
 
 
-class HeartbeatTimerThread(TimerThread):
-    def __init__(self, cfg: Config, queue: PriorityQueue):
-        super().__init__(
-            queue, cfg.heartbeat_interval.seconds, HeartbeatCommand
-        )
+# class IngesterCheckTimerThread(TimerThread):
+#     def __init__(self, cfg: Config, queue: PriorityQueue):
+#         super().__init__(
+#             queue, cfg.heartbeat_interval.seconds, CheckIngesterCommand
+#         )
 
 
 class CompletionTimerThread(TimerThread):
@@ -92,12 +95,17 @@ def run(
         logger.critical('source "%s" not enabled for live updates', source)
         sys.exit(1)
 
+    # For historical processes, make a unique name.
+    name = source
+    if historical:
+        name += f'-{os.getpid()}'
+
     # Connect to staging database for current source. For historical
     # processing jobs, a unique name is used for the staging database, since
     # the database will be completely consumed at the end of the processing
     # job, and since we don't want historical processing to interfere with any
     # live receivers.
-    db = DB(cfg, source, historical)
+    db = DB(cfg, name, historical)
 
     # We may sometimes want to purge the staging database before starting
     # (mostly for debugging).
@@ -116,22 +124,26 @@ def run(
 
     # Set up RabbitMQ handler.
     rmq = RMQ(
-        f'rx-{source}',
+        f'rx-{name}',
         rmq_parameters(cfg),
         queue,
+        RMQCommand,
         [RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE]
     )
 
     # Set up data source handler.
     data_source = SOURCES_BY_NAME[source](cfg, queue, *args)
 
-    # Set up heartbeat and completion timer threads.
-    heartbeat_timer_thread = HeartbeatTimerThread(cfg, queue)
+    # Set up ingester check and completion timer threads.
+    # ingester_check_timer_thread = IngesterCheckTimerThread(cfg, queue)
     completion_timer_thread = CompletionTimerThread(cfg, queue, source)
+
+    # Set up ingester liveness checking.
+    ingester_liveness = LivenessChecker(rmq, 'feder-ingester')
 
     # Start all separate threads.
     rmq.start()
-    heartbeat_timer_thread.start()
+    # ingester_check_timer_thread.start()
     completion_timer_thread.start()
     data_source.start()
 
@@ -148,7 +160,7 @@ def run(
     # If we get here, the data source handler has already stopped, so we just
     # need to clean up the timer threads and RabbitMQ.
     data_source.stop()
-    heartbeat_timer_thread.stop()
+    ingester_check_timer_thread.stop()
     completion_timer_thread.stop()
     rmq.stop()
 

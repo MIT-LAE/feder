@@ -27,20 +27,17 @@ class Fix:
 
 
 class DB:
-    def __init__(self, config: Config, source: str, historical: bool = False):
+    def __init__(self, config: Config, name: str, historical: bool = False):
         self.config = config
-        self.source = source
-        suffix = ''
+        self.name = name
         self.historical = historical
-        if self.historical:
-            suffix = f'-{os.getpid()}'
-        self.db_path = os.path.join(config.scratch_directory, source + suffix + '.db')
+        self.db_path = os.path.join(config.scratch_directory, name + '.db')
         os.makedirs(config.scratch_directory, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path)
         self._ensure_schema()
 
     def purge(self) -> None:
-        logger.info('Purging staging for source "%s"', self.source)
+        logger.info('Purging staging for source "%s"', self.name)
         cur = self.conn.cursor()
         cur.execute("DELETE FROM fixes")
         self.conn.commit()

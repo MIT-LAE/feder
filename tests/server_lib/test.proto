@@ -1,0 +1,14 @@
+message PubTest {
+    required string name = 1;
+}
+
+message RPCRequest {
+    required string name = 1;
+    required uint32 data = 2;
+}
+
+message RPCResponse {
+    required string name = 1;
+    required uint32 data = 2;
+    required bool success = 3;
+}

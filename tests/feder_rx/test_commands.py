@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from feder.rx.commands import (
-    CompleteCommand, HeartbeatCommand,
+    CompleteCommand, IngesterStatusCommand,
     SourceDoneCommand, SourceErrorCommand, SourcePositionCommand,
     StopCommand, TrajectoryCommand
 )
@@ -18,19 +18,19 @@ def test_command_ordering():
     )
     source_error = SourceErrorCommand('this is an error')
     source_done = SourceDoneCommand()
-    heartbeat = HeartbeatCommand()
+    ingester_status = IngesterStatusCommand(live=True)
     complete = CompleteCommand()
     trajectory = TrajectoryCommand('dummy-id')
     stop = StopCommand()
 
     commands = sorted([
         source_pos, source_error, source_done,
-        heartbeat, complete, trajectory, stop
+        ingester_status, complete, trajectory, stop
     ])
 
     assert commands == [
-        stop,                        # Priority 0
-        source_error, heartbeat,     # Priority 1
-        source_pos, source_done,     # Priority 2
-        complete, trajectory         # Priority 3
+        stop,                          # Priority 0
+        source_error, ingester_status, # Priority 1
+        source_pos, source_done,       # Priority 2
+        complete, trajectory           # Priority 3
     ]

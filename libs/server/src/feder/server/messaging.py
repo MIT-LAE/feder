@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pika
 import pika.credentials
@@ -28,23 +29,54 @@ def rmq_parameters(config: 'Config'):
 def build_trajectory_message(
         source: str, source_id: str, df: pd.DataFrame
 ) -> Trajectory:
-    if any(df.transponder_id != df.transponder_id[0]):
-        raise ValueError('inconsistent transponder_id in position fixes')
-    if any(df.callsign != df.callsign[0]):
-        raise ValueError('inconsistent callsign in position fixes')
-    if any(df.aircrafttype != df.aircrafttype[0]):
-        raise ValueError('inconsistent aircrafttype in position fixes')
+    _single_value_column_check(df, 'transponder_id')
+    _single_value_column_check(df, 'callsign')
+    _single_value_column_check(df, 'aircrafttype')
     msg = Trajectory()
     msg.source = source
     msg.id = source_id
-    msg.transponder_id = df.transponder_id[0]
-    msg.callsign = df.callsign[0]
-    msg.aircrafttype = df.aircrafttype[0]
+    msg.transponder_id = df.transponder_id[0] or ''
+    msg.callsign = df.callsign[0] or ''
+    msg.aircrafttype = df.aircrafttype[0] or ''
     msg.points.time.extend(df.time)
     msg.points.lon.extend(df.lon)
     msg.points.lat.extend(df.lat)
-    msg.points.alt.extend(df.alt)
-    msg.points.alt_gnss.extend(df.alt_gnss)
-    msg.points.heading.extend(df.heading)
+    msg.points.alt.extend(_substitute_none(df.alt))
+    msg.points.alt_gnss.extend(_substitute_none(df.alt_gnss))
+    msg.points.heading.extend(_substitute_none(df.heading))
     msg.points.on_ground.extend(df.on_ground)
     return msg
+
+
+# TODO: Make this better.
+def parse_trajectory_message(traj: Trajectory) -> tuple[str, str, pd.DataFrame]:
+    df = pd.DataFrame(dict(
+        transponder_id=traj.transponder_id,
+        callsign=traj.callsign,
+        aircrafttype=traj.aircrafttype,
+        time=traj.time,
+        lon=traj.lon,
+        lat=traj.lat,
+        alt=_replace_none(traj.alt),
+        alt_gnss=_replace_none(traj.alt_gnss),
+        on_ground=_replace_none(traj.on_ground)
+    ))
+    _single_value_column_check(df, 'transponder_id')
+    _single_value_column_check(df, 'callsign')
+    _single_value_column_check(df, 'aircrafttype')
+    return traj.source, traj.source_id, df
+
+
+def _single_value_column_check(df: pd.DataFrame, column_name: str):
+    if len(set(df[column_name])) != 1:
+        raise ValueError(
+            f'inconsistent {column_name} in position fixes: {list(df[column_name])}'
+        )
+
+
+def _substitute_none(xs):
+    return np.where(pd.isna(xs), -999999, xs)
+
+
+def _replace_none(xs):
+    return [x if x >= -100000 else None for x in xs]

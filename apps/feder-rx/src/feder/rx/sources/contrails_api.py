@@ -26,7 +26,7 @@ class ContrailsAPISource(DateSource):
     DATE_RESOLUTION = 'h'
     DATE_INTERVAL = timedelta(hours=1)
 
-    def __init__(self, config: 'Config', queue: PriorityQueue, *args: str):
+    def __init__(self, config: 'Config', queue: 'PriorityQueue', *args: str):
         super().__init__(config, queue, *args)
         self.api_key = config.credentials(self.NAME)['api_key']
 

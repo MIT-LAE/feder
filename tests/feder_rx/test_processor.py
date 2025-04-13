@@ -1,10 +1,18 @@
+from dataclasses import dataclass
 from datetime import datetime
 from queue import PriorityQueue
 from threading import Thread
+from unittest.mock import Mock
 
+from feder.server.rmq import Message
 from feder.rx import Processor
 from feder.rx.commands import SourceDoneCommand, SourcePositionCommand
 from feder.rx.sources.flightaware import FlightAwareSource
+
+
+@dataclass
+class Wrapper:
+    content: Message
 
 
 def test_source_position_command_processing(config, db):
@@ -12,7 +20,10 @@ def test_source_position_command_processing(config, db):
     # the database.
 
     queue = PriorityQueue()
-    processor = Processor(config, FlightAwareSource.NAME, False, db, queue)
+    processor = Processor(
+        config, FlightAwareSource.NAME, False, db, queue,
+        rmq=Mock()
+    )
 
     def send_position_fixes():
         queue.put(SourcePositionCommand(
