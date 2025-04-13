@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum
 import functools
 import logging
 from queue import Queue
@@ -39,7 +39,7 @@ class MessageType(Enum):
 @dataclass
 class Message:
     message_type: MessageType
-    delivery_tag: int | None = None
+    delivery_tag: int
     endpoint: str = ''
     reply_to: str = ''
     correlation_id: str = ''
@@ -176,12 +176,17 @@ class RMQ(Thread):
         # RabbitMQ top-level entities.
         self._connection: pika.SelectConnection | None = None
         self._channel: pika.channel.Channel | None = None
+        self._rpc_channel: pika.channel.Channel | None = None
 
         # IO loop termination control.
         self._stopping = False
 
         # Message counter for publish confirmation.
         self._message_number = 0
+
+        # Dictionary to map correlation IDs to callbacks for RPC client.
+        # self._rpc_callbacks: dict[str, tuple[callable[something...], type[pbmsg.Message]]] = {}
+        self._rpc_callbacks: dict[str, tuple[Any, type[pbmsg.Message]]] = {}
 
         # Event to wait for RabbitMQ initialisation.
         self._ready = Event()
@@ -198,6 +203,8 @@ class RMQ(Thread):
     def _calculate_setup_steps(self):
         # Fixed channel setup steps.
         steps = [self._open_channel]
+        if self.rpc_client or self.rpc_server:
+            steps.append(self._open_rpc_channel)
 
         # Declare requested exchanges.
         steps += [
@@ -218,7 +225,11 @@ class RMQ(Thread):
 
         # Set up queue for replies to RPC client requests.
         if self.rpc_client:
-            steps.append(self._set_up_rpc_client_reply_queue)
+            steps += [
+                self._declare_rpc_client_reply_queue,
+                self._bind_rpc_client_reply_queue,
+                self._consume_rpc_client_reply_queue
+            ]
 
         if self.rpc_server:
             # Set up RPC server endpoints. We want one queue with multiple
@@ -269,9 +280,10 @@ class RMQ(Thread):
     def run(self):
         while not self._stopping:
             # The message counter for publish confirmation is per-channel, so
-            # we reset it here, since we're going to create a new channel.
+            # we reset it here, since we're going to create a new channel. We
+            # also remove any pending RPC callback mappings.
             self._message_number = 0
-            # TODO: Reset transient RPC client and server state here.
+            self._rpc_callbacks = {}
 
             # Start connection process.
             #
@@ -310,6 +322,8 @@ class RMQ(Thread):
         # eventually cause the I/O loop to exit.
         if self._channel is not None:
             self._channel.close()
+        if self._rpc_channel is not None:
+            self._rpc_channel.close()
         if self._connection is not None:
             self._connection.close()
 
@@ -420,18 +434,6 @@ class RMQ(Thread):
                     )
 
     def _setup_rpc_entities(self):
-        # Set up RPC entities: we use a special "rpc" exchange for RPC calls
-        # and manage server and client endpoint queues so that users can call
-        # send_rpc to make a call from a client and can receive RPC calls as a
-        # server through the normal queue mechanism. The reply queue for RPC
-        # client operation is set up separately after all the other consumers.
-        if self.rpc_server or self.rpc_client:
-            self.exchanges += [self.RPC_EXCHANGE]
-
-        # Dictionary to map correlation IDs to callbacks for RPC client.
-        # self._rpc_callbacks: dict[str, tuple[callable[something...], type[pbmsg.Message]]] = {}
-        self._rpc_callbacks: dict[str, tuple[Any, type[pbmsg.Message]]] = {}
-
         # List of RPC server endpoint names.
         self._rpc_endpoint_names = [ep.name for ep in (self.rpc_server or [])]
 
@@ -454,6 +456,7 @@ class RMQ(Thread):
 
     def _on_connection_closed(self, reason):
         self._channel = None
+        self._rpc_channel = None
         assert self._connection is not None
         if self._stopping:
             # Cause the call to ioloop.start() in the run() method to return
@@ -493,6 +496,23 @@ class RMQ(Thread):
             callback=lambda _: self._setup(step_idx)
         )
 
+    def _open_rpc_channel(self, step_idx: int):
+        logger.info('Opening RabbitMQ RPC channel...')
+        assert self._connection is not None
+        self._connection.channel(
+            on_open_callback=lambda ch: self._on_rpc_channel_open(step_idx, ch)
+        )
+
+    def _on_rpc_channel_open(self, step_idx: int, channel: pika.channel.Channel):
+        self._rpc_channel = channel
+        assert self._rpc_channel is not None
+        self._rpc_channel.add_on_close_callback(self._on_rpc_channel_closed)
+        logger.info('Setting QoS on RabbitMQ RPC channel...')
+        self._rpc_channel.basic_qos(
+            prefetch_count=self.prefetch_count,
+            callback=lambda _: self._setup(step_idx)
+        )
+
     def _wrap(self, msg):
         if self.wrapper_class is not None:
             return self.wrapper_class(msg)
@@ -521,6 +541,18 @@ class RMQ(Thread):
             logger.warning('RabbitMQ channel %i was closed: %s', channel, reason)
         assert self._connection is not None
         self._channel = None
+        if self._rpc_channel is not None and self._rpc_channel.is_open:
+            self._rpc_channel.close()
+        if not self._stopping and self._connection.is_open:
+            self._connection.close()
+
+    def _on_rpc_channel_closed(self, channel, reason):
+        if not isinstance(reason, ChannelClosedByClient):
+            logger.warning('RabbitMQ channel %i was closed: %s', channel, reason)
+        assert self._connection is not None
+        self._rpc_channel = None
+        if self._channel is not None and self._channel.is_open:
+            self._channel.close()
         if not self._stopping and self._connection.is_open:
             self._connection.close()
 
@@ -528,8 +560,6 @@ class RMQ(Thread):
         # This method is called repeatedly to set up the exchanges from the
         # list passed into the constructor. All "normal" exchanges are created
         # as durable fanout exchanges.
-
-        assert self._channel is not None
 
         logger.info('Declaring RabbitMQ exchange "%s"', exchange)
 
@@ -539,11 +569,14 @@ class RMQ(Thread):
             case self.RPC_EXCHANGE:
                 exchange_type = ExchangeType.direct
                 durable = False
+                channel = self._rpc_channel
             case _:
                 exchange_type = ExchangeType.fanout
                 durable = True
+                channel = self._channel
 
-        self._channel.exchange_declare(
+        assert channel is not None
+        channel.exchange_declare(
             exchange=exchange,
             exchange_type=exchange_type,
             durable=durable,
@@ -569,18 +602,6 @@ class RMQ(Thread):
             callback=lambda _: self._setup(step_idx)
         )
 
-    def _declare_rpc_server_queue(self, step_idx: int):
-        queue_name = self.RPC_EXCHANGE + ':' + self.name
-        logger.info('Declaring RabbitMQ queue "%s"...', queue_name)
-        assert self._channel is not None
-        self._channel.queue_declare(
-            queue=queue_name, durable=False,
-            callback=lambda _: self._setup(step_idx)
-        )
-
-    # TODO: Do queue binding right for the RPC server — there needs to be one
-    # binding per endpoint using the endpoint name as the routing key.
-
     def _bind_consumer_queue(self, step_idx: int, consumer: Consumer):
         # Manage queue binding for consumption.
 
@@ -604,16 +625,24 @@ class RMQ(Thread):
         )
         self._setup(step_idx)
 
+    def _declare_rpc_server_queue(self, step_idx: int):
+        queue_name = self.RPC_EXCHANGE + ':' + self.name
+        logger.info('Declaring RabbitMQ queue "%s"...', queue_name)
+        assert self._rpc_channel is not None
+        self._rpc_channel.queue_declare(
+            queue=queue_name, callback=lambda _: self._setup(step_idx)
+        )
+
     def _bind_rpc_server_queue(self, step_idx: int, endpoint: RPCEndpoint):
         # Manage queue binding for RPC server endpoint.
 
-        assert self._channel is not None
+        assert self._rpc_channel is not None
         queue_name = self.RPC_EXCHANGE + ':' + self.name
         logger.info(
             'Binding RabbitMQ queue "%s" at endpoint "%s"...',
             queue_name, endpoint.name
         )
-        self._channel.queue_bind(
+        self._rpc_channel.queue_bind(
             queue=queue_name, exchange=self.RPC_EXCHANGE,
             routing_key=endpoint.name,
             callback=lambda _: self._setup(step_idx)
@@ -627,35 +656,54 @@ class RMQ(Thread):
             'Consuming RabbitMQ queue "%s" at endpoint "%s"...',
             queue_name, endpoint.name
         )
-        assert self._channel is not None
-        self._channel.basic_consume(
+        assert self._rpc_channel is not None
+        self._rpc_channel.basic_consume(
             queue=queue_name,
             on_message_callback=functools.partial(self._on_rpc_request, endpoint)
         )
         self._setup(step_idx)
 
-    def _set_up_rpc_client_reply_queue(self, step_idx: int):
-
+    def _declare_rpc_client_reply_queue(self, step_idx: int):
         # An empty queue name here causes the broker to autogenerate a name,
         # and "exclusive" means the queue goes away when the connection goes
         # away (the Pika docs say "Only allow access by the current
         # connection").
-        assert self._channel is not None
-        self._channel.queue_declare(
+        logger.info('Declaring RabbitMQ RPC client reply queue...')
+        assert self._rpc_channel is not None
+        self._rpc_channel.queue_declare(
             queue='', exclusive=True,
             callback=lambda frame: self._on_rpc_client_queue_declareok(step_idx, frame)
         )
 
     def _on_rpc_client_queue_declareok(self, step_idx: int, frame: pika.frame.Method):
-        assert self._channel is not None
-
         self.rpc_callback_queue = frame.method.queue
+        self._setup(step_idx)
+
+    def _bind_rpc_client_reply_queue(self, step_idx: int):
+        # Manage queue binding for consumption.
+
+        assert self._channel is not None
+        logger.info(
+            'Binding RabbitMQ RPC reply queue "%s"...',
+            self.rpc_callback_queue
+        )
+        self._channel.queue_bind(
+            queue=self.rpc_callback_queue, exchange=self.RPC_EXCHANGE,
+            routing_key=self.rpc_callback_queue,
+            callback=lambda _: self._setup(step_idx)
+        )
+
+    def _consume_rpc_client_reply_queue(self, step_idx: int):
+        logger.info(
+            'Consuming RabbitMQ RPC reply queue "%s"...', self.rpc_callback_queue
+        )
 
         # On the *server* side, we only want to ACK after we've handled the
         # request, but on the client side, no-one really cares so we use
         # auto-ACK.
-        # TODO: Remove all ACK/NACK stuff for RPC requests and replies.
-        self._channel.basic_consume(
+        # TODO: Remove all ACK/NACK stuff for RPC requests and replies?
+        assert self._rpc_channel is not None
+        self._rpc_channel.basic_consume(
             queue=self.rpc_callback_queue,
             on_message_callback=self._on_rpc_response,
             auto_ack=True
@@ -691,10 +739,9 @@ class RMQ(Thread):
         # Pass RPC request to outer application context, including
         # correlation ID and reply queue, and keeping track of the
         # association between them for later reply processing.
-        correlation_id = str(uuid.uuid4())
         # TODO: Decide on what to pass here...
         self.out_queue.put(self._wrap(
-            Message.rpc(method, correlation_id, props.reply_to, message)
+            Message.rpc(method, props.correlation_id, props.reply_to, message)
         ))
 
         # Message will be acknowledged when a response is sent.
@@ -741,13 +788,12 @@ class RMQ(Thread):
             payload: pbmsg.Message,
             correlation_id: str
     ):
-        assert self._channel is not None
-
         # TODO: Think about timeouts.
         # TODO: Think about cancellation.
         # TODO: Think about routing here — a server might want to support more
         #       than one endpoint...
-        self._channel.basic_publish(
+        assert self._rpc_channel is not None
+        self._rpc_channel.basic_publish(
             exchange=self.RPC_EXCHANGE,
             routing_key=endpoint,
             properties=BasicProperties(
@@ -762,11 +808,10 @@ class RMQ(Thread):
             request_message: Message,
             reply_message: pbmsg.Message
     ):
-        assert self._channel is not None
-
         # Encode Protocol Buffers message and publish on the RPC exchange
         # using the routing key to send the reply back to the requester.
-        self._channel.basic_publish(
+        assert self._rpc_channel is not None
+        self._rpc_channel.basic_publish(
             exchange=self.RPC_EXCHANGE,
             routing_key=request_message.reply_to,
             body=reply_message.SerializeToString(),
@@ -775,3 +820,5 @@ class RMQ(Thread):
                 correlation_id=request_message.correlation_id
             )
         )
+        # TODO: Get rid of this somehow.
+        self._rpc_channel.basic_ack(request_message.delivery_tag)

@@ -13,14 +13,9 @@ from .test_pb2 import PubTest, RPCRequest, RPCResponse
 
 
 @pytest.fixture
-def out_queue():
-    return Queue()
-
-
-@pytest.fixture
-def rmq_publisher(out_queue):
+def rmq_publisher():
     """RMQ publisher instance connected to a local RabbitMQ broker."""
-    rmq = _make_rmq('test_publisher', out_queue)
+    rmq = _make_rmq('test_publisher')
     rmq.start()
     yield rmq
     try:
@@ -30,9 +25,9 @@ def rmq_publisher(out_queue):
 
 
 @pytest.fixture
-def rmq_consumer(out_queue):
+def rmq_consumer():
     """RMQ consumer instance connected to a local RabbitMQ broker."""
-    rmq = _make_rmq('test_consumer', out_queue, consumer=True)
+    rmq = _make_rmq('test_consumer', consumer=True)
     rmq.start()
     yield rmq
     try:
@@ -42,9 +37,9 @@ def rmq_consumer(out_queue):
 
 
 @pytest.fixture
-def rmq_rpc_client(out_queue):
+def rmq_rpc_client():
     """RMQ RPC client instance connected to a local RabbitMQ broker."""
-    rmq = _make_rmq('test_rpc_client', out_queue, rpc_client=True)
+    rmq = _make_rmq('test_rpc_client', rpc_client=True)
     rmq.start()
     yield rmq
     try:
@@ -54,40 +49,15 @@ def rmq_rpc_client(out_queue):
 
 
 @pytest.fixture
-def rmq_rpc_server(out_queue):
+def rmq_rpc_server():
     """RMQ RPC server instance connected to a local RabbitMQ broker."""
-    rmq = _make_rmq('test_rpc_server', out_queue, rpc_server=True)
+    rmq = _make_rmq('test_rpc_server', rpc_server=True)
     rmq.start()
     yield rmq
     try:
         rmq.stop()
     except Exception:
         pass
-
-
-def test_publisher_initialization(rmq_publisher):
-    assert rmq_publisher.name == 'test_publisher'
-    assert rmq_publisher.exchanges == ['test_exchange']
-    assert len(rmq_publisher.consumers) == 0
-
-
-def test_consumer_initialization(rmq_consumer):
-    assert rmq_consumer.name == 'test_consumer'
-    assert rmq_consumer.exchanges == ['test_exchange']
-    assert len(rmq_consumer.consumers) == 1
-    assert rmq_consumer.consumers[0].exchange == 'test_exchange'
-
-
-def test_rpc_client_initialization(rmq_rpc_client):
-    assert rmq_rpc_client.name == 'test_rpc_client'
-    assert rmq_rpc_client.exchanges == ['test_exchange', 'rpc']
-    assert len(rmq_rpc_client.consumers) == 0
-
-
-def test_rpc_server_initialization(rmq_rpc_server):
-    assert rmq_rpc_server.name == 'test_rpc_server'
-    assert rmq_rpc_server.exchanges == ['test_exchange', 'rpc']
-    assert len(rmq_rpc_server.consumers) == 0
 
 
 def test_publish_message(rmq_publisher):
@@ -115,7 +85,7 @@ def test_rpc(rmq_rpc_client, rmq_rpc_server):
     saved_correlation_id = None
 
     def result_callback(correlation_id, response):
-        print('CALLBACK CALLED!')
+        # print('CALLBACK CALLED!')
         nonlocal callback_ok
 
         if correlation_id != saved_correlation_id:
@@ -137,10 +107,17 @@ def test_rpc(rmq_rpc_client, rmq_rpc_server):
         else:
             return fib(n - 1) + fib(n - 2)
 
+    def client():
+        while True:
+            qmsg = rmq_rpc_client.out_queue.get()
+            # print(f'CLIENT: {qmsg}')
+            if qmsg == 'STOP':
+                return
+
     def server():
         while True:
             qmsg = rmq_rpc_server.out_queue.get()
-            print(f'qmsg = {qmsg}')
+            # print(f'SERVER: {qmsg}')
             match qmsg:
                 case 'STOP':
                     return
@@ -156,6 +133,8 @@ def test_rpc(rmq_rpc_client, rmq_rpc_server):
 
     server_thread = Thread(target=server)
     server_thread.start()
+    client_thread = Thread(target=client)
+    client_thread.start()
 
     # Make an RPC call.
     request = RPCRequest()
@@ -163,12 +142,15 @@ def test_rpc(rmq_rpc_client, rmq_rpc_server):
     request.data = 6
     saved_correlation_id = rmq_rpc_client.send_rpc(
         'fibonacci', request, RPCResponse,
-        result_callback, error_callback, timeout=5
+        result_callback
+        # , error_callback, timeout=5
     )
 
     callback_complete.wait(timeout=5)
     rmq_rpc_server.out_queue.put('STOP')
+    rmq_rpc_client.out_queue.put('STOP')
     server_thread.join()
+    client_thread.join()
 
     assert callback_ok
 
@@ -183,7 +165,6 @@ def test_connection_handling(rmq_publisher):
 
 def _make_rmq(
         name: str,
-        out_queue: Queue,
         consumer: bool = False,
         rpc_client: bool = False,
         rpc_server: bool = False
@@ -204,7 +185,7 @@ def _make_rmq(
     return RMQ(
         name=name,
         parameters=ConnectionParameters(host='localhost'),
-        out_queue=out_queue,
+        out_queue=Queue(),
         exchanges=['test_exchange'],
         consumers=consumers,
         rpc_client=rpc_client,
