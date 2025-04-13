@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ntest.proto\"\x17\n\x07PubTest\x12\x0c\n\x04name\x18\x01 \x02(\t\"(\n\nRPCRequest\x12\x0c\n\x04name\x18\x01 \x02(\t\x12\x0c\n\x04\x64\x61ta\x18\x02 \x02(\r\":\n\x0bRPCResponse\x12\x0c\n\x04name\x18\x01 \x02(\t\x12\x0c\n\x04\x64\x61ta\x18\x02 \x02(\r\x12\x0f\n\x07success\x18\x03 \x02(\x08')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ntest.proto\"\x17\n\x07PubTest\x12\x0c\n\x04name\x18\x01 \x02(\t\".\n\x10\x46ibonacciRequest\x12\x0c\n\x04name\x18\x01 \x02(\t\x12\x0c\n\x04\x64\x61ta\x18\x02 \x02(\r\"@\n\x11\x46ibonacciResponse\x12\x0c\n\x04name\x18\x01 \x02(\t\x12\x0c\n\x04\x64\x61ta\x18\x02 \x02(\r\x12\x0f\n\x07success\x18\x03 \x02(\x08\".\n\x10\x46\x61\x63torialRequest\x12\x0c\n\x04name\x18\x01 \x02(\t\x12\x0c\n\x04\x64\x61ta\x18\x02 \x02(\r\"@\n\x11\x46\x61\x63torialResponse\x12\x0c\n\x04name\x18\x01 \x02(\t\x12\x0c\n\x04\x64\x61ta\x18\x02 \x02(\r\x12\x0f\n\x07success\x18\x03 \x02(\x08')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,8 +33,12 @@ if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
   _globals['_PUBTEST']._serialized_start=14
   _globals['_PUBTEST']._serialized_end=37
-  _globals['_RPCREQUEST']._serialized_start=39
-  _globals['_RPCREQUEST']._serialized_end=79
-  _globals['_RPCRESPONSE']._serialized_start=81
-  _globals['_RPCRESPONSE']._serialized_end=139
+  _globals['_FIBONACCIREQUEST']._serialized_start=39
+  _globals['_FIBONACCIREQUEST']._serialized_end=85
+  _globals['_FIBONACCIRESPONSE']._serialized_start=87
+  _globals['_FIBONACCIRESPONSE']._serialized_end=151
+  _globals['_FACTORIALREQUEST']._serialized_start=153
+  _globals['_FACTORIALREQUEST']._serialized_end=199
+  _globals['_FACTORIALRESPONSE']._serialized_start=201
+  _globals['_FACTORIALRESPONSE']._serialized_end=265
 # @@protoc_insertion_point(module_scope)

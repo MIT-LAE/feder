@@ -2,12 +2,23 @@ message PubTest {
     required string name = 1;
 }
 
-message RPCRequest {
+message FibonacciRequest {
     required string name = 1;
     required uint32 data = 2;
 }
 
-message RPCResponse {
+message FibonacciResponse {
+    required string name = 1;
+    required uint32 data = 2;
+    required bool success = 3;
+}
+
+message FactorialRequest {
+    required string name = 1;
+    required uint32 data = 2;
+}
+
+message FactorialResponse {
     required string name = 1;
     required uint32 data = 2;
     required bool success = 3;

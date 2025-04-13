@@ -22,64 +22,35 @@ logger = logging.getLogger(__name__)
 logging.getLogger('pika').setLevel(logging.WARNING)
 
 
-class MessageType(Enum):
-    DATA = 1
-    ACK = 2
-    NACK = 3
-    RPC = 4
-
-
-# TODO: The routing of RPC requests to their handlers isn't very good. Need
-# something better here.
-
 # TODO: Disable ACK/NACK for RPC requests and replies.
 
-# TODO: Make this a set of classes, rather than a single "everything together"
-# dataclass like this?
 @dataclass
 class Message:
-    message_type: MessageType
     delivery_tag: int
-    endpoint: str = ''
-    reply_to: str = ''
-    correlation_id: str = ''
-    exchange: str = ''
-    message: type[pbmsg.Message] | None = None
 
-    @classmethod
-    def ack(cls, method):
-        return cls(
-            message_type=MessageType.ACK,
-            delivery_tag=method.delivery_tag
-        )
 
-    @classmethod
-    def nack(cls, method):
-        return cls(
-            message_type=MessageType.NACK,
-            delivery_tag=method.delivery_tag
-        )
+@dataclass
+class AckMessage(Message):
+    ...
 
-    @classmethod
-    def rpc(cls, method, correlation_id, reply_to, message):
-        return cls(
-            message_type=MessageType.RPC,
-            exchange=RMQ.RPC_EXCHANGE,
-            endpoint=method.routing_key,
-            reply_to=reply_to,
-            correlation_id=correlation_id,
-            delivery_tag=method.delivery_tag,
-            message=message
-        )
 
-    @classmethod
-    def data(cls, consumer, method, message):
-        return cls(
-            message_type=MessageType.DATA,
-            exchange=consumer.exchange,
-            delivery_tag=method.delivery_tag,
-            message=message
-        )
+@dataclass
+class NackMessage(Message):
+    ...
+
+
+@dataclass
+class DataMessage(Message):
+    exchange: str
+    message: type[pbmsg.Message]
+
+
+@dataclass
+class RPCMessage(Message):
+    endpoint: str
+    reply_to: str
+    correlation_id: str
+    message: type[pbmsg.Message]
 
 
 @dataclass
@@ -133,7 +104,8 @@ class RMQ(Thread):
             consumers: list[Consumer] | None = None,
             wrapper_class: type | None = None,
             rpc_client: bool = True,
-            rpc_server: list[RPCEndpoint] | None = None,
+            rpc_server: list[str] | None = None,
+            rpc_endpoints: list[RPCEndpoint] | None = None,
             prefetch_count: int = 1,
             reconnect_interval: float = 5.0,
             ready_wait_interval: float = 5.0,
@@ -169,6 +141,7 @@ class RMQ(Thread):
         self.consumers = consumers or []
         self.rpc_client = rpc_client
         self.rpc_server = rpc_server
+        self.rpc_endpoints = rpc_endpoints
         self.prefetch_count = prefetch_count
         self.reconnect_interval = reconnect_interval
         self.ready_wait_interval = ready_wait_interval
@@ -188,17 +161,21 @@ class RMQ(Thread):
         # self._rpc_callbacks: dict[str, tuple[callable[something...], type[pbmsg.Message]]] = {}
         self._rpc_callbacks: dict[str, tuple[Any, type[pbmsg.Message]]] = {}
 
+        # Dictionary to map RPC server endpoints to message class pairs.
+        self._rpc_endpoints_by_name = {
+            ep.name: ep for ep in (self.rpc_endpoints or [])
+        }
+
         # Event to wait for RabbitMQ initialisation.
         self._ready = Event()
 
         # Check input values for exchanges and consumers.
         self._check_exchanges()
         self._check_consumers()
+        self._check_rpc_server()
 
         # Determine required setup steps.
         self._setup_steps = self._calculate_setup_steps()
-
-        self._setup_rpc_entities()
 
     def _calculate_setup_steps(self):
         # Fixed channel setup steps.
@@ -235,11 +212,11 @@ class RMQ(Thread):
             # Set up RPC server endpoints. We want one queue with multiple
             # bindings using the RPC endpoint name as the routing key.
             steps.append(self._declare_rpc_server_queue)
-            for step in [
-                    self._bind_rpc_server_queue,
-                    self._consume_rpc_server_queue
-            ]:
-                steps += [(step, ep) for ep in self.rpc_server]
+            steps += [
+                (self._bind_rpc_server_queue, self._rpc_endpoints_by_name[ep])
+                for ep in self.rpc_server
+            ]
+            steps.append(self._consume_rpc_server_queue)
 
         return steps
 
@@ -352,19 +329,20 @@ class RMQ(Thread):
             self,
             endpoint: str,
             payload: pbmsg.Message,
-            response_class: type[pbmsg.Message],
             callback
     ) -> str:
         """Send a Protocol Buffers message to an RPC endpoint."""
 
         if not self.rpc_client:
             raise RuntimeError('RPC client operation is not configured')
-        assert self._connection is not None
+        if endpoint not in self._rpc_endpoints_by_name:
+            raise ValueError(f'unknown RPC endpoint: {endpoint}')
+        ep_data = self._rpc_endpoints_by_name[endpoint]
 
         # Generate unique correlation ID for request and save callback for
         # reply processing.
         correlation_id = str(uuid.uuid4())
-        self._rpc_callbacks[correlation_id] = (callback, response_class)
+        self._rpc_callbacks[correlation_id] = (callback, ep_data.response_class)
 
         # Message number used for publish confirmation: returned to caller for
         # later correlation with ACK/NACK messages.
@@ -372,6 +350,7 @@ class RMQ(Thread):
 
         # Thread-safe invocation of method to do actual message sending within
         # I/O loop.
+        assert self._connection is not None
         self._connection.ioloop.add_callback_threadsafe(
             functools.partial(
                 self._send_rpc, endpoint, payload, correlation_id
@@ -382,7 +361,7 @@ class RMQ(Thread):
 
     def rpc_reply(
             self,
-            request_message: Message,
+            request_message: RPCMessage,
             reply_message: pbmsg.Message
     ) -> int:
         """Send a reply to an RPC invocation."""
@@ -433,15 +412,13 @@ class RMQ(Thread):
                         f'receive class "{c.message_class}" not a Protocol Buffers message'
                     )
 
-    def _setup_rpc_entities(self):
-        # List of RPC server endpoint names.
-        self._rpc_endpoint_names = [ep.name for ep in (self.rpc_server or [])]
-
-        # Dictionary to map RPC server endpoints to message class pairs.
-        self._rpc_server_classes = {
-            ep.name: (ep.request_class, ep.response_class)
-            for ep in (self.rpc_server or [])
-        }
+    def _check_rpc_server(self):
+        # The list of endpoints in the rpc_server parameter to the constructor
+        # should correspond to endpoints in the rpc_endpoints parameter.
+        if self.rpc_server is not None:
+            for s in self.rpc_server:
+                if s not in self._rpc_endpoints_by_name:
+                    raise ValueError(f'unknown RPC endpoint "{s}" for RPC server')
 
     def _on_connection_open_error(self, err):
         logger.error(
@@ -527,9 +504,13 @@ class RMQ(Thread):
         # acknowledged.
         match frame.method:
             case spec.Basic.Ack():
-                self.out_queue.put(self._wrap(Message.ack(frame.method)))
+                self.out_queue.put(
+                    self._wrap(AckMessage(frame.method.delivery_tag))
+                )
             case spec.Basic.Nack():
-                self.out_queue.put(self._wrap(Message.nack(frame.method)))
+                self.out_queue.put(
+                    self._wrap(NackMessage(frame.method.delivery_tag))
+                )
             case _:
                 logger.warning(
                     'unknown delivery confirmation message: %s',
@@ -648,18 +629,17 @@ class RMQ(Thread):
             callback=lambda _: self._setup(step_idx)
         )
 
-    def _consume_rpc_server_queue(self, step_idx: int, endpoint: RPCEndpoint):
+    def _consume_rpc_server_queue(self, step_idx: int):
         # Set up consumption for RPC server endpoint.
 
         queue_name = self.RPC_EXCHANGE + ':' + self.name
         logger.info(
-            'Consuming RabbitMQ queue "%s" at endpoint "%s"...',
-            queue_name, endpoint.name
+            'Consuming RabbitMQ queue "%s"...', queue_name
         )
         assert self._rpc_channel is not None
         self._rpc_channel.basic_consume(
             queue=queue_name,
-            on_message_callback=functools.partial(self._on_rpc_request, endpoint)
+            on_message_callback=self._on_rpc_request
         )
         self._setup(step_idx)
 
@@ -732,16 +712,25 @@ class RMQ(Thread):
         callback(props.correlation_id, response)
         del self._rpc_callbacks[props.correlation_id]
 
-    def _on_rpc_request(self, endpoint: RPCEndpoint, _ch, method, props, body):
+    def _on_rpc_request(self, _ch, method, props, body):
+        endpoint_name = method.routing_key
+        if endpoint_name not in self._rpc_endpoints_by_name:
+            raise ValueError(f'unknown RPC endpoint: {endpoint_name}')
+        endpoint = self._rpc_endpoints_by_name[endpoint_name]
         message = endpoint.request_class()
         message.ParseFromString(body)
 
         # Pass RPC request to outer application context, including
         # correlation ID and reply queue, and keeping track of the
         # association between them for later reply processing.
-        # TODO: Decide on what to pass here...
         self.out_queue.put(self._wrap(
-            Message.rpc(method, props.correlation_id, props.reply_to, message)
+            RPCMessage(
+                delivery_tag=method.delivery_tag,
+                endpoint=endpoint.name,
+                reply_to=props.reply_to,
+                correlation_id=props.correlation_id,
+                message=message
+            )
         ))
 
         # Message will be acknowledged when a response is sent.
@@ -756,7 +745,11 @@ class RMQ(Thread):
         # including information about the receivinig exchange and delivery
         # tag.
         self.out_queue.put(self._wrap(
-            Message.data(consumer, method, message)
+            DataMessage(
+                delivery_tag=method.delivery_tag,
+                exchange=consumer.exchange,
+                message=message
+            )
         ))
 
         # Acknowledge all messages immediately.
@@ -805,9 +798,16 @@ class RMQ(Thread):
 
     def _rpc_reply(
             self,
-            request_message: Message,
+            request_message: RPCMessage,
             reply_message: pbmsg.Message
     ):
+        response_class = self._rpc_endpoints_by_name[request_message.endpoint].response_class
+        if not isinstance(reply_message, response_class):
+            raise ValueError(
+                f'invalid response class "{type(reply_message)}" '
+                f'for RPC endpoint "{request_message.endpoint}"'
+            )
+
         # Encode Protocol Buffers message and publish on the RPC exchange
         # using the routing key to send the reply back to the requester.
         assert self._rpc_channel is not None
