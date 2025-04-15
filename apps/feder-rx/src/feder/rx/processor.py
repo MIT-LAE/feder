@@ -45,7 +45,7 @@ class Processor:
             # Only start a new trajectory completion cycle if the last one is
             # complete.
             if trajectory_completion_pending and trajectory_command_count == 0:
-                print('Starting trajectory completion cycle...')
+                logger.info('Starting trajectory completion cycle...')
                 for source_id in self.identify_complete_trajectories():
                     self.queue.put(TrajectoryCommand(source_id))
                     trajectory_command_count += 1
@@ -53,7 +53,7 @@ class Processor:
 
             match self.queue.get():
                 case SourcePositionCommand() as cmd:
-                    print('SOURCE-POSITION command')
+                    logger.info('SOURCE-POSITION command')
                     if self.historical:
                         self.horizon_reference = cmd.time
                     self.db.save_position(
@@ -66,11 +66,11 @@ class Processor:
                 case SourceErrorCommand(message):
                     # We just log the errors here. If a source wants to exit
                     # after an error, it will send a StopCommand.
-                    print('SOURCE-ERROR command')
+                    logger.info('SOURCE-ERROR command')
                     logger.error(message)
 
                 case SourceDoneCommand():
-                    print('SOURCE-DONE command')
+                    logger.info('SOURCE-DONE command')
                     # Run a final trajectory completion cycle and mark that we
                     # should exit when it's finished.
                     trajectory_completion_pending = True
@@ -85,21 +85,24 @@ class Processor:
 
                 case StopCommand():
                     # Interrupt: stop immediately!
-                    print('STOP command')
+                    logger.info('STOP command')
                     done = True
 
                 case IngesterStatusCommand(live):
-                    print(f'INGESTER-STATUS command: {"OK" if live else "FAILED"}')
+                    logger.info(
+                        'INGESTER-STATUS command: %s',
+                        'OK' if live else 'FAILED'
+                    )
                     # TODO: Handle changes in ingester status here.
 
                 case CompleteCommand():
-                    print('COMPLETE command')
+                    logger.info('COMPLETE command')
                     # Mark that a trajectory completion cycle should be started
                     # when any current cycle is complete.
                     trajectory_completion_pending = True
 
                 case TrajectoryCommand(source_id):
-                    print('TRAJECTORY command')
+                    logger.info('TRAJECTORY command')
                     # Process a single complete trajectory. If this doesn't
                     # work, then the position fixes for the trajectory will
                     # remain in the database to be reprocessed in the next
