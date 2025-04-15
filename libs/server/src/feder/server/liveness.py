@@ -1,12 +1,21 @@
+from datetime import datetime
 from queue import Queue
 from threading import Thread, Event
 
 from google.protobuf.message import Message
 
-from .rmq import RMQ
+from .rmq import RMQ, RPCEndpoint, RPCMessage
+from .liveness_pb2 import LivenessQuery, LivenessResponse, LivenessStatus
 
 
 class LivenessChecker(Thread):
+    @staticmethod
+    def rpc_endpoints(*endpoint_names):
+        return [
+            RPCEndpoint(name, LivenessQuery, LivenessStatus)
+            for name in endpoint_names
+        ]
+
     def __init__(
             self,
             rmq: RMQ,
@@ -24,41 +33,64 @@ class LivenessChecker(Thread):
         self.timeout_interval = timeout_interval
         self.ok_check_interval = ok_check_interval
         self.down_check_interval = down_check_interval
-        self.stopped = False
-        self.correlation_id = None
-        self.waiting = None
-        self.live = False
+
+        self._stopped = False
+        self._correlation_id = None
+        self._waiting = None
+        self._live = False
 
     def _set_status(self):
-        self.out_queue.put(self.status_command(self.live))
+        self.out_queue.put(self.status_command(self._live))
 
-    def _callback(self, correlation_id: int, message: Message):
+    def _process_callback(self, correlation_id: str, status: bool):
         if (
-                not self.stopped and
-                self.correlation_id is not None and
-                self.correlation_id == correlation_id and
-                self.waiting is not None
+                not self._stopped and
+                self._correlation_id is not None and
+                self._correlation_id == correlation_id and
+                self._waiting is not None
         ):
-            self.correlation_id = None
-            self.waiting.set()
+            self._correlation_id = None
+            self._live = status
+            self._waiting.set()
+
+    def _callback(self, correlation_id: str, message: Message):
+        self._process_callback(correlation_id, True)
+
+    def _error_callback(self, correlation_id: str, reason: str):
+        self._process_callback(correlation_id, False)
 
     def stop(self):
-        self.stopped = True
-        if self.waiting is not None:
-            self.waiting.is_set()
+        self._stopped = True
+        if self._waiting is not None:
+            self._waiting.is_set()
 
     def run(self):
-        while not self.stopped:
-            self.waiting = Event()
-            self.correlation_id = self.rmq.send_rpc(self.endpoint, self._callback)
-            self.waiting.wait(self.timeout_interval)
-            self.live = self.waiting.is_set()
-            self.waiting = None
-            self._set_status()
+        while not self._stopped:
+            self._waiting = Event()
+            query = LivenessQuery()
+            query.source = self.rmq.name
+            self._correlation_id = self.rmq.send_rpc(
+                self.endpoint, query,
+                self._callback,
+                error_callback=self._error_callback,
+                timeout=self.timeout_interval
+            )
+            self._waiting.wait()
+            self._waiting = None
 
             if not self.stopped:
-                self.waiting = Event()
-                self.waiting.wait(
-                    self.ok_check_interval if self.live
+                self._set_status()
+                self._waiting = Event()
+                self._waiting.wait(
+                    self.ok_check_interval if self._live
                     else self.down_check_interval
                 )
+
+    def send_reply(
+            self, query: RPCMessage, status: LivenessStatus = LivenessStatus.OK
+    ):
+        response = LivenessResponse()
+        response.source = self.rmq.name
+        response.timestamp = datetime.now().timestamp()
+        response.status = self._live
+        self.rmq.rpc_reply(query, response)

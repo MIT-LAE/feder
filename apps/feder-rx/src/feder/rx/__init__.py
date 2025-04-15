@@ -9,7 +9,7 @@ import click
 from feder.server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE,
-    TimerThread
+    TimerThread, LivenessChecker
 )
 
 from .commands import (
@@ -123,12 +123,17 @@ def run(
     queue = PriorityQueue(maxsize=QUEUE_SIZE)
 
     # Set up RabbitMQ handler.
+    liveness_endpoint = f'liveness:{name}'
     rmq = RMQ(
-        f'rx-{name}',
-        rmq_parameters(cfg),
-        queue,
-        RMQCommand,
-        [RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE]
+        name=f'rx-{name}',
+        parameters=rmq_parameters(cfg),
+        out_queue=queue,
+        exchanges=[RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE],
+        rpc_client=True,
+        rpc_server=[liveness_endpoint],
+        rpc_endpoints=LivenessChecker.rpc_endpoints(
+            liveness_endpoint, 'liveness:ingester'
+        )
     )
 
     # Set up data source handler.

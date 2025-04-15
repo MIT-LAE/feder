@@ -21,9 +21,6 @@ logger = logging.getLogger(__name__)
 logging.getLogger('pika').setLevel(logging.WARNING)
 
 
-# TODO: Disable ACK/NACK for RPC requests and replies.
-
-
 @dataclass
 class Message:
     """Base class for messages sent to output queue."""

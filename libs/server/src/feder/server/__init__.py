@@ -6,3 +6,4 @@ from .messaging import (  # noqa
     build_trajectory_message, rmq_parameters
 )
 from .timers import TimerThread  # noqa
+from .liveness import LivenessChecker  # noqa
