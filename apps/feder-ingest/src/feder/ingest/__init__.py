@@ -7,19 +7,17 @@ import click
 from feder.server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE,
-    TimerThread
+    LivenessChecker
 )
+from feder.server.rmq import Consumer
 from feder.server.rabbitmq_pb2 import Trajectory
+
+from .commands import StopCommand, RMQCommand
+from .db import DBCache
+from .processor import Processor
 
 
 logger = logging.getLogger(__name__)
-
-
-class HeartbeatTimerThread(TimerThread):
-    def __init__(self, cfg: Config, queue: Queue):
-        super().__init__(
-            queue, cfg.heartbeat_interval.seconds, lambda: 'HEARTBEAT'
-        )
 
 
 @click.command()
@@ -44,26 +42,27 @@ def run(debug: bool, config: str | None) -> None:
     queue = Queue()
 
     # Set up RabbitMQ handler.
+    name = 'ingester'
     rmq = RMQ(
-        'ingester',
-        rmq_parameters(cfg),
-        queue,
-        [RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE],
+        name=name,
+        parameters=rmq_parameters(cfg),
+        out_queue=queue,
+        exchanges=[RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE],
         consumers=[
-            RMQ.Consumer(RMQ_TRAJECTORY_EXCHANGE, Trajectory, durable=True)
-        ]
+            Consumer(RMQ_TRAJECTORY_EXCHANGE, Trajectory, durable=True)
+        ],
+        wrapper_class=RMQCommand,
+        rpc_client=True,
+        rpc_server=[LivenessChecker.endpoint_name(name)],
+        rpc_endpoints=LivenessChecker.rpc_endpoints(cfg)
     )
-
-    # Set up heartbeat timer threads.
-    heartbeat_timer_thread = HeartbeatTimerThread(cfg, queue)
 
     # Start all separate threads.
     rmq.start()
-    heartbeat_timer_thread.start()
 
     # Signal handling for tidy cleanup.
     def stop(_signum, _frame):
-        queue.put('STOP')
+        queue.put(StopCommand())
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
@@ -72,8 +71,7 @@ def run(debug: bool, config: str | None) -> None:
     processor.run()
 
     # If we get here, the ingester has already stopped, so we just need to
-    # clean up the timer threads and RabbitMQ.
-    heartbeat_timer_thread.stop()
+    # clean up RabbitMQ.
     rmq.stop()
 
 if __name__ == '__main__':

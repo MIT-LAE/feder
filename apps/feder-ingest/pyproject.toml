@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-feder-ingest = "feder.ingest:main"
+feder-ingest = "feder.ingest:run"
 
 [build-system]
 requires = ["hatchling"]

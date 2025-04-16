@@ -1,33 +1,63 @@
 from datetime import datetime
+import logging
 from queue import Queue
 from threading import Thread, Event
 
 from google.protobuf.message import Message
 
+from .config import Config
+from .sources import SOURCE_NAMES
 from .rmq import RMQ, RPCEndpoint, RPCMessage
 from .liveness_pb2 import LivenessQuery, LivenessResponse, LivenessStatus
 
 
+logger = logging.getLogger(__name__)
+
+
 class LivenessChecker(Thread):
     @staticmethod
-    def rpc_endpoints(*endpoint_names):
+    def endpoint_name(name: str) -> str:
+        return 'liveness:' + name
+
+    @staticmethod
+    def rpc_endpoints(cfg: Config) -> list[RPCEndpoint]:
+        names = ['ingester'] + list(filter(cfg.enabled, SOURCE_NAMES))
         return [
-            RPCEndpoint(name, LivenessQuery, LivenessStatus)
-            for name in endpoint_names
+            RPCEndpoint(
+                LivenessChecker.endpoint_name(name),
+                LivenessQuery,
+                LivenessResponse
+            )
+            for name in names
         ]
+
+    @staticmethod
+    def send_reply(
+            rmq: RMQ,
+            query: RPCMessage,
+            status: LivenessStatus = LivenessStatus.LIVENESS_OK
+    ):
+        response = LivenessResponse()
+        response.source = rmq.name
+        response.timestamp = int(datetime.now().timestamp())
+        response.status = status
+        rmq.rpc_reply(query, response)
 
     def __init__(
             self,
             rmq: RMQ,
-            endpoint: str,
+            name: str,
             out_queue: Queue,
             status_command: type,
             timeout_interval: int = 3,
             ok_check_interval: int = 30,
-            down_check_interval: int = 10
+            down_check_interval: int = 10,
+            *args, **kwargs
     ):
+        super().__init__(*args, **kwargs)
         self.rmq = rmq
-        self.endpoint = endpoint
+        self.name = name
+        self.endpoint = self.endpoint_name(name)
         self.out_queue = out_queue
         self.status_command = status_command
         self.timeout_interval = timeout_interval
@@ -37,7 +67,12 @@ class LivenessChecker(Thread):
         self._stopped = False
         self._correlation_id = None
         self._waiting = None
+        self._client_waiting = False
         self._live = False
+
+    @property
+    def live(self):
+        return self._live
 
     def _set_status(self):
         self.out_queue.put(self.status_command(self._live))
@@ -54,15 +89,19 @@ class LivenessChecker(Thread):
             self._waiting.set()
 
     def _callback(self, correlation_id: str, message: Message):
+        logger.info('liveness response from %s', self.endpoint)
+        # TODO: Save last response timestamp and status? More intelligent
+        # processing here?
         self._process_callback(correlation_id, True)
 
     def _error_callback(self, correlation_id: str, reason: str):
+        logger.warn('liveness timeout from %s', self.endpoint)
         self._process_callback(correlation_id, False)
 
     def stop(self):
         self._stopped = True
         if self._waiting is not None:
-            self._waiting.is_set()
+            self._waiting.set()
 
     def run(self):
         while not self._stopped:
@@ -78,19 +117,21 @@ class LivenessChecker(Thread):
             self._waiting.wait()
             self._waiting = None
 
-            if not self.stopped:
-                self._set_status()
+            if not self._stopped:
+                if not self._client_waiting:
+                    self._set_status()
                 self._waiting = Event()
                 self._waiting.wait(
                     self.ok_check_interval if self._live
                     else self.down_check_interval
                 )
 
-    def send_reply(
-            self, query: RPCMessage, status: LivenessStatus = LivenessStatus.OK
-    ):
-        response = LivenessResponse()
-        response.source = self.rmq.name
-        response.timestamp = datetime.now().timestamp()
-        response.status = self._live
-        self.rmq.rpc_reply(query, response)
+    # TODO: Add timeout here?
+    def wait(self):
+        try:
+            self._client_waiting = True
+            while not self._stopped and not self._live:
+                if self._waiting is not None:
+                    self._waiting.wait()
+        finally:
+            self._client_waiting = False

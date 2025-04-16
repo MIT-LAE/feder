@@ -128,10 +128,9 @@ class Processor:
                         done = True
 
                 case RMQCommand() as cmd:
-                    msg = cmd.message
-                    match msg.message_type:
-                        case rmq.MessageType.ACK:
-                            message_number = msg.delivery_tag
+                    match cmd.message:
+                        case rmq.AckMessageType(delivery_tag):
+                            message_number = delivery_tag
                             logger.info(f'RMQ ACK: {message_number}')
 
                             # If publication to RabbitMQ was successful, delete all
@@ -142,8 +141,8 @@ class Processor:
                                 self.db.delete_trajectory(source_id)
                                 del pending_rmq_messages[message_number]
 
-                        case rmq.MessageType.NACK:
-                            message_number = msg.delivery_tag
+                        case rmq.NackMessage(delivery_tag):
+                            message_number = delivery_tag
                             logger.info(f'RMQ NACK: {message_number}')
 
                             # If publication to RabbitMQ was unsuccessful, don't
@@ -156,8 +155,7 @@ class Processor:
 
                         case _:
                             logger.warning(
-                                'unexpected RMQ data message on exchange "%s"',
-                                msg.exchange
+                                'unexpected RMQ message "%s"', cmd.message
                             )
 
     def identify_complete_trajectories(self) -> list[str]:

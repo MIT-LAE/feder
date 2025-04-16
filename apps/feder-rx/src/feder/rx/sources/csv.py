@@ -30,6 +30,7 @@ class ColIndex:
         self.alt_gnss_col = row.index('alt_gnss')
         self.heading_col = row.index('heading')
         self.air_ground_col = row.index('air_ground')
+        self.complete = True
         return True
 
 

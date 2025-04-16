@@ -1,0 +1,49 @@
+# All time intervals are either integer seconds or strings conforming to the
+# requirements of the constructor of the Pandas Timedelta type.
+
+[paths]
+data-directory = "/big/mcast/data/feder"
+scratch-directory = "/big/mcast/data/feder-scratch"
+
+[rabbitmq]
+host = "g01"
+port = 5672
+username = "feder"
+password = "dflksjdflkjsd"
+
+[monitoring]
+heartbeat-interval = 30
+from-email = "feder-monitor@mit.edu"
+from-name = "Feder Monitoring"
+to-email = "ian@skybluetrades.net"
+to-name = "Ian Ross"
+mail-backend = "dummy" # for development, normally, default = "mailjet"
+mailjet-api-key = "<fill in API key>"
+mailjet-secret-key = "<fill in secret key>"
+
+[sources]
+# Defaults for all sources.
+completion-delay = "15 minutes"
+completion-interval = 60
+data-lag = 0
+
+[source.contrails-api]
+enabled = false
+data-lag = "48 hours"
+api-key = "<fill in API key>"
+
+[source.flightaware]
+enabled = false
+username = "<fill in username>"
+password = "<fill in password>"
+
+[source.opensky]
+enabled = false
+api-key = "<fill in API key>"
+
+[source.opensky-state-vectors]
+enabled = false
+api-key = "<fill in API key>"
+
+[source.csv]
+enabled = true
