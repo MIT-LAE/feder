@@ -37,6 +37,23 @@ class SourcePositionCommand(Command):
 
 
 @dataclass
+class BatchSourcePositionCommand(Command):
+    PRIORITY = 2
+
+    source_ids: list[str]
+    transponder_ids: list[str]
+    times: list[datetime]
+    callsigns: list[str]
+    aircrafttypes: list[str | None]
+    lats: list[float]
+    lons: list[float]
+    alts: list[int | None]
+    alts_gnss: list[int | None]
+    headings: list[float | None]
+    on_grounds: list[bool]
+
+
+@dataclass
 class SourceErrorCommand(Command):
     PRIORITY = 0
 
@@ -44,7 +61,7 @@ class SourceErrorCommand(Command):
 
 
 class SourceDoneCommand(Command):
-    PRIORITY = 2
+    PRIORITY = 5
 
 
 @dataclass
@@ -58,9 +75,13 @@ class CompleteCommand(Command):
     PRIORITY = 3
 
 
+class FileCompleteCommand(Command):
+    PRIORITY = 2
+
+
 @dataclass
 class TrajectoryCommand(Command):
-    PRIORITY = 3
+    PRIORITY = 1
 
     source_id: str
 

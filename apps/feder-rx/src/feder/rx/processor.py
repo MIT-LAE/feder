@@ -6,9 +6,10 @@ from feder.server import Config, RMQ
 import feder.server.rmq as rmq
 from feder.server.messaging import build_trajectory_message
 from .commands import (
-    SourcePositionCommand, SourceErrorCommand, SourceDoneCommand,
+    SourcePositionCommand, BatchSourcePositionCommand,
+    SourceErrorCommand, SourceDoneCommand,
     IngesterStatusCommand,
-    CompleteCommand, TrajectoryCommand,
+    CompleteCommand, FileCompleteCommand, TrajectoryCommand,
     StopCommand, RMQCommand
 )
 from .db import DB
@@ -21,7 +22,8 @@ class Processor:
     def __init__(
             self,
             config: Config, source: str, historical: bool,
-            db: DB, queue: PriorityQueue, rmq: RMQ):
+            db: DB, queue: PriorityQueue, rmq: RMQ
+    ):
         self.config = config
         self.source = source
         self.historical = historical
@@ -33,130 +35,182 @@ class Processor:
         # Used for historical processing.
         self.horizon_reference = None
 
-    def run(self):
-        done = False
-        done_pending = False
-        trajectory_completion_pending = False
-        trajectory_command_count = 0
-        pending_rmq_messages = {}
+        self._done = False
+        self._done_pending = False
+        self._trajectory_completion_pending = False
+        self._trajectory_command_count = 0
+        self._pending_rmq_messages = {}
+        self._fix_count = 0
 
+    def run(self):
         # Process messages from command queue.
-        while not done:
+        while not self._done:
             # Only start a new trajectory completion cycle if the last one is
             # complete.
-            if trajectory_completion_pending and trajectory_command_count == 0:
+            if (
+                    self._trajectory_completion_pending and
+                    self._trajectory_command_count == 0
+            ):
                 logger.info('Starting trajectory completion cycle...')
                 for source_id in self.identify_complete_trajectories():
                     self.queue.put(TrajectoryCommand(source_id))
-                    trajectory_command_count += 1
-                trajectory_completion_pending = False
+                    self._trajectory_command_count += 1
+                logger.info(
+                    'Queued trajectories: %s (%s)',
+                    self._trajectory_command_count, self.queue.qsize()
+                )
+                self._trajectory_completion_pending = False
 
-            match self.queue.get():
-                case SourcePositionCommand() as cmd:
-                    logger.info('SOURCE-POSITION command')
-                    if self.historical:
-                        self.horizon_reference = cmd.time
-                    self.db.save_position(
-                        cmd.source_id, cmd.transponder_id, cmd.time,
-                        cmd.callsign, cmd.aircrafttype,
-                        cmd.lat, cmd.lon, cmd.alt, cmd.alt_gnss,
-                        cmd.heading, cmd.on_ground
-                    )
+            command = self.queue.get()
+            try:
+                self._process_one(command)
+            except Exception:
+                logger.exception('command processing failed')
 
-                case SourceErrorCommand(message):
-                    # We just log the errors here. If a source wants to exit
-                    # after an error, it will send a StopCommand.
-                    logger.info('SOURCE-ERROR command')
-                    logger.error(message)
+    def _process_one(self, command):
+        match command:
+            case SourcePositionCommand() as cmd:
+                self._source_position(cmd)
 
-                case SourceDoneCommand():
-                    logger.info('SOURCE-DONE command')
-                    # Run a final trajectory completion cycle and mark that we
-                    # should exit when it's finished.
-                    trajectory_completion_pending = True
-                    done_pending = True
+            case BatchSourcePositionCommand() as cmd:
+                self._batch_source_position(cmd)
 
-                    # Ensure that the rejectory completion horizon is far
-                    # enough past the time of the last position fix received
-                    # so that all data in the staging database is consumed
-                    # during the final trajectory completion cycle.
-                    if self.historical and self.horizon_reference is not None:
-                        self.horizon_reference += self.completion_delay
+            case SourceErrorCommand(message):
+                # We just log the errors here. If a source wants to exit
+                # after an error, it will send a StopCommand.
+                logger.info('SOURCE-ERROR command')
+                logger.error(message)
 
-                case StopCommand():
-                    # Interrupt: stop immediately!
-                    logger.info('STOP command')
-                    done = True
+            case SourceDoneCommand():
+                self._source_done()
 
-                case IngesterStatusCommand(live):
-                    logger.info(
-                        'INGESTER-STATUS command: %s',
-                        'OK' if live else 'FAILED'
-                    )
-                    # TODO: Handle changes in ingester status here.
+            case StopCommand():
+                # Interrupt: stop immediately!
+                logger.info('STOP command')
+                self._done = True
 
-                case CompleteCommand():
-                    logger.info('COMPLETE command')
-                    # Mark that a trajectory completion cycle should be started
-                    # when any current cycle is complete.
-                    trajectory_completion_pending = True
+            case IngesterStatusCommand(live):
+                logger.info(
+                    'INGESTER-STATUS command: %s',
+                    'OK' if live else 'FAILED'
+                )
+                # TODO: Handle changes in ingester status here.
 
-                case TrajectoryCommand(source_id):
-                    logger.info('TRAJECTORY command')
-                    # Process a single complete trajectory. If this doesn't
-                    # work, then the position fixes for the trajectory will
-                    # remain in the database to be reprocessed in the next
-                    # completion cycle.
-                    #
-                    # A special case here is if a trajectory completion fails
-                    # in the final trajectory completion cycle of a historical
-                    # processing job. (This case just falls through to the
-                    # "attempt to remove a non-empty staging database" error,
-                    # since there will be position fixes left in the database
-                    # when the process exits.)
-                    #
-                    # The message number from RabbitMQ is saved for publish
-                    # confirmation processing.
-                    pending_rmq_messages[self.complete_trajectory(source_id)] = source_id
+            case CompleteCommand():
+                logger.info('COMPLETE command')
+                # Mark that a trajectory completion cycle should be started
+                # when any current cycle is complete.
+                self._trajectory_completion_pending = True
 
-                    # There's one less TRAJECTORY command in the queue.
-                    trajectory_command_count -= 1
+            case FileCompleteCommand():
+                logger.info('FILE-COMPLETE command')
+                # Mark that a trajectory completion cycle should be started
+                # when any current cycle is complete.
+                self._trajectory_completion_pending = True
 
-                    # If we had got a DONE command and were just waiting for
-                    # trajectory completion to finish, stop now.
-                    if trajectory_command_count == 0 and done_pending:
-                        done = True
+            case TrajectoryCommand(source_id):
+                self._trajectory(source_id)
 
-                case RMQCommand() as cmd:
-                    match cmd.message:
-                        case rmq.AckMessageType(delivery_tag):
-                            message_number = delivery_tag
-                            logger.info(f'RMQ ACK: {message_number}')
+            case RMQCommand() as cmd:
+                match cmd.message:
+                    case rmq.AckMessage(delivery_tag):
+                        # If publication to RabbitMQ was successful, delete all
+                        # position fixes from the database for the related source
+                        # ID.
+                        if delivery_tag in self._pending_rmq_messages:
+                            source_id = self._pending_rmq_messages[delivery_tag]
+                            self.db.delete_trajectory(source_id)
+                            del self._pending_rmq_messages[delivery_tag]
 
-                            # If publication to RabbitMQ was successful, delete all
-                            # position fixes from the database for the related source
-                            # ID.
-                            if message_number in pending_rmq_messages:
-                                source_id = pending_rmq_messages[message_number]
-                                self.db.delete_trajectory(source_id)
-                                del pending_rmq_messages[message_number]
+                    case rmq.NackMessage(delivery_tag):
+                        # If publication to RabbitMQ was unsuccessful, don't
+                        # delete position fixes from the database for the related
+                        # source ID. They will be picked up again in the next
+                        # trajectory completion cycle.
+                        if delivery_tag in self._pending_rmq_messages:
+                            source_id = self._pending_rmq_messages[delivery_tag]
+                            del self._pending_rmq_messages[delivery_tag]
 
-                        case rmq.NackMessage(delivery_tag):
-                            message_number = delivery_tag
-                            logger.info(f'RMQ NACK: {message_number}')
+                    case _:
+                        logger.warning(
+                            'unexpected RMQ message "%s"', cmd.message
+                        )
 
-                            # If publication to RabbitMQ was unsuccessful, don't
-                            # delete position fixes from the database for the related
-                            # source ID. They will be picked up again in the next
-                            # trajectory completion cycle.
-                            if message_number in pending_rmq_messages:
-                                source_id = pending_rmq_messages[message_number]
-                                del pending_rmq_messages[message_number]
+    def _source_position(self, cmd):
+        if self.historical:
+            self.horizon_reference = cmd.time
+        self.db.save_position(
+            cmd.source_id, cmd.transponder_id, cmd.time,
+            cmd.callsign, cmd.aircrafttype,
+            cmd.lat, cmd.lon, cmd.alt, cmd.alt_gnss,
+            cmd.heading, cmd.on_ground
+        )
+        self._fix_count += 1
+        if self._fix_count % 1000 == 0:
+            logger.info(
+                'processed %s position fixes', self._fix_count
+            )
 
-                        case _:
-                            logger.warning(
-                                'unexpected RMQ message "%s"', cmd.message
-                            )
+    def _batch_source_position(self, cmd):
+        if self.historical:
+            self.horizon_reference = cmd.times[-1]
+        self.db.save_positions(
+            cmd.source_ids, cmd.transponder_ids, cmd.times,
+            cmd.callsigns, cmd.aircrafttypes,
+            cmd.lats, cmd.lons, cmd.alts, cmd.alts_gnss,
+            cmd.headings, cmd.on_grounds
+        )
+        for i in range(len(cmd.times)):
+            self._fix_count += 1
+            if self._fix_count % 1000 == 0:
+                logger.info(
+                    'processed %s position fixes', self._fix_count
+                )
+
+    def _source_done(self):
+        logger.info('SOURCE-DONE command')
+        # Run a final trajectory completion cycle and mark that we
+        # should exit when it's finished.
+        self._trajectory_completion_pending = True
+        self._done_pending = True
+
+        # Ensure that the rejectory completion horizon is far
+        # enough past the time of the last position fix received
+        # so that all data in the staging database is consumed
+        # during the final trajectory completion cycle.
+        if self.historical and self.horizon_reference is not None:
+            self.horizon_reference += self.completion_delay
+
+    def _trajectory(self, source_id: str):
+        logger.info('TRAJECTORY: %s', source_id)
+        # Process a single complete trajectory. If this doesn't
+        # work, then the position fixes for the trajectory will
+        # remain in the database to be reprocessed in the next
+        # completion cycle.
+        #
+        # A special case here is if a trajectory completion fails
+        # in the final trajectory completion cycle of a historical
+        # processing job. (This case just falls through to the
+        # "attempt to remove a non-empty staging database" error,
+        # since there will be position fixes left in the database
+        # when the process exits.)
+        #
+        # The message number from RabbitMQ is saved for publish
+        # confirmation processing.
+        message_number = self.complete_trajectory(source_id)
+        if message_number is not None:
+            self._pending_rmq_messages[message_number] = source_id
+
+        # There's one less TRAJECTORY command in the queue.
+        self._trajectory_command_count -= 1
+
+        # If we had got a DONE command and were just waiting for
+        # trajectory completion to finish, stop now.
+        if (
+                self._trajectory_command_count == 0 and
+                self._done_pending
+        ):
+            self._done = True
 
     def identify_complete_trajectories(self) -> list[str]:
         # For historical processing jobs, we use the time of the last position
@@ -179,9 +233,11 @@ class Processor:
         logger.info('completion horizon: %s', horizon.isoformat())
         return self.db.complete_source_ids(horizon)
 
-    def complete_trajectory(self, source_id: str):
+    def complete_trajectory(self, source_id: str) -> int | None:
         # Retrieve all position fixes from database as data frame.
         df = self.db.get_trajectory(source_id)
+        if df.empty:
+            return None
 
         # Build trajectory payload to send to ingester.
         payload = build_trajectory_message(self.source, source_id, df)

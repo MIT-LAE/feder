@@ -1,9 +1,14 @@
 import csv
 from datetime import datetime
 import logging
+from queue import PriorityQueue
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from feder.server import Config
 
 from feder.server.sources import CSV_SOURCE_NAME
-from ..commands import SourcePositionCommand
+from ..commands import BatchSourcePositionCommand
 from . import FileSource
 
 
@@ -36,6 +41,25 @@ class ColIndex:
 
 class CSVSource(FileSource):
     NAME = CSV_SOURCE_NAME
+    BATCH_SIZE = 100
+
+    def __init__(self, config: 'Config', queue: PriorityQueue, *args: str):
+        super().__init__(config, queue, *args)
+        self._clear()
+
+    def _clear(self):
+        self._source_ids = []
+        self._transponder_ids = []
+        self._times = []
+        self._callsigns = []
+        self._aircrafttypes = []
+        self._lats = []
+        self._lons = []
+        self._alts = []
+        self._alts_gnss = []
+        self._headings = []
+        self._on_grounds = []
+        self._nrows = 0
 
     def process_file(self, filename):
         logger.info('Processing CSV: %s', filename)
@@ -54,16 +78,33 @@ class CSVSource(FileSource):
                     continue
 
                 # One source position command per row.
-                self.queue.put(SourcePositionCommand(
-                    source_id = row[idx.id_col],
-                    transponder_id = row[idx.hexid_col],
-                    time = datetime.fromtimestamp(int(row[idx.clock_col])),
-                    callsign = row[idx.ident_col],
-                    aircrafttype = n(row, idx.aircrafttype_col, str),
-                    lat = float(row[idx.lat_col]),
-                    lon = float(row[idx.lon_col]),
-                    alt = n(row, idx.alt_col, int),
-                    alt_gnss = n(row, idx.alt_gnss_col, int),
-                    heading = n(row, idx.heading_col, float),
-                    on_ground = row[idx.air_ground_col] == 'G'
-                ))
+                self._source_ids.append(row[idx.id_col])
+                self._transponder_ids.append(row[idx.hexid_col])
+                self._times.append(datetime.fromtimestamp(int(row[idx.clock_col])))
+                self._callsigns.append(row[idx.ident_col])
+                self._aircrafttypes.append(n(row, idx.aircrafttype_col, str))
+                self._lats.append(float(row[idx.lat_col]))
+                self._lons.append(float(row[idx.lon_col]))
+                self._alts.append(n(row, idx.alt_col, int))
+                self._alts_gnss.append(n(row, idx.alt_gnss_col, int))
+                self._headings.append(n(row, idx.heading_col, float))
+                self._on_grounds.append(row[idx.air_ground_col] == 'G')
+                self._nrows += 1
+
+                if self._nrows == self.BATCH_SIZE:
+                    yield BatchSourcePositionCommand(
+                        self._source_ids, self._transponder_ids, self._times,
+                        self._callsigns, self._aircrafttypes,
+                        self._lats, self._lons, self._alts, self._alts_gnss,
+                        self._headings, self._on_grounds
+                    )
+                    self._clear()
+
+            if self._nrows > 0:
+                yield BatchSourcePositionCommand(
+                    self._source_ids, self._transponder_ids, self._times,
+                    self._callsigns, self._aircrafttypes,
+                    self._lats, self._lons, self._alts, self._alts_gnss,
+                    self._headings, self._on_grounds
+                )
+                self._clear()

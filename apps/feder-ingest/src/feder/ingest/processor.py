@@ -38,6 +38,9 @@ class Processor:
 
                 case RMQCommand() as cmd:
                     match cmd.message:
+                        case rmq.DataMessage() as msg:
+                            trajectory = cast(Trajectory, msg.message)
+                            logger.info('TRAJECTORY message: %s', trajectory.callsign)
                         case rmq.RPCMessage() as msg:
                             match msg.endpoint:
                                 case 'liveness:ingester':

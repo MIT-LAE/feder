@@ -268,7 +268,7 @@ class RMQ(Thread):
     def send(
             self,
             exchange: str,
-            message: pbmsg.Message,
+            message: type[pbmsg.Message],
             persistent: bool = True
     ) -> int:
         """Send a Protocol Buffers message to an exchange."""
@@ -282,14 +282,16 @@ class RMQ(Thread):
         # Thread-safe invocation of method to do actual message sending within
         # I/O loop.
         self._connection.ioloop.add_callback_threadsafe(
-            functools.partial(self._send, exchange, message, persistent)
+            functools.partial(
+                self._send, exchange, message.SerializeToString(), persistent
+            )
         )
         return self._message_number
 
     def send_rpc(
             self,
             endpoint: str,
-            payload: pbmsg.Message,
+            payload: type[pbmsg.Message],
             callback: RPCCallback,
             error_callback: RPCErrorCallback | None = None,
             timeout: int = None
@@ -327,7 +329,8 @@ class RMQ(Thread):
         # I/O loop.
         self._connection.ioloop.add_callback_threadsafe(
             functools.partial(
-                self._send_rpc, endpoint, payload, correlation_id
+                self._send_rpc, endpoint,
+                payload.SerializeToString(), correlation_id
             )
         )
 
@@ -343,7 +346,7 @@ class RMQ(Thread):
     def rpc_reply(
             self,
             request_message: RPCMessage,
-            reply_message: pbmsg.Message
+            reply_message: type[pbmsg.Message]
     ) -> int:
         """Send a reply to an RPC invocation."""
 
@@ -373,7 +376,10 @@ class RMQ(Thread):
         # Thread-safe invocation of method to do actual message sending within
         # I/O loop.
         self._connection.ioloop.add_callback_threadsafe(
-            functools.partial(self._rpc_reply, request_message, reply_message)
+            functools.partial(
+                self._rpc_reply, request_message,
+                reply_message.SerializeToString()
+            )
         )
         return self._message_number
 
@@ -898,21 +904,21 @@ class RMQ(Thread):
     def _send(
             self,
             exchange: str,
-            message: pbmsg.Message,
+            serialized_message: str,
             persistent: bool = True
     ):
         # Encode Protocol Buffers message and publish.
         assert self._channel is not None
         dm = DeliveryMode.Persistent if persistent else DeliveryMode.Transient
         self._channel.basic_publish(
-            exchange, '', body=message.SerializeToString(),
+            exchange, '', body=serialized_message,
             properties=spec.BasicProperties(delivery_mode=dm)
         )
 
     def _send_rpc(
             self,
             endpoint: str,
-            payload: pbmsg.Message,
+            serialized_payload: str,
             correlation_id: str
     ):
         assert self._rpc_channel is not None
@@ -923,13 +929,13 @@ class RMQ(Thread):
                 reply_to=self.rpc_callback_queue,
                 correlation_id=correlation_id
             ),
-            body=payload.SerializeToString()
+            body=serialized_payload
         )
 
     def _rpc_reply(
             self,
             request_message: RPCMessage,
-            reply_message: pbmsg.Message
+            serialized_reply_message: str
     ):
         endpoint = request_message.endpoint
         response_class = self._rpc_endpoints_by_name[endpoint].response_class
@@ -945,7 +951,7 @@ class RMQ(Thread):
         self._rpc_channel.basic_publish(
             exchange=self.RPC_EXCHANGE,
             routing_key=request_message.reply_to,
-            body=reply_message.SerializeToString(),
+            body=serialized_reply_message,
             properties=spec.BasicProperties(
                 delivery_mode=DeliveryMode.Transient,
                 correlation_id=request_message.correlation_id

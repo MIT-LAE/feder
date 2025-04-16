@@ -36,8 +36,6 @@ SOURCES = [
 
 SOURCES_BY_NAME = {s.NAME: s for s in SOURCES}
 
-QUEUE_SIZE = 100  # Command queue size.
-
 
 class CompletionTimerThread(TimerThread):
     def __init__(self, cfg: Config, queue: PriorityQueue, source: str):
@@ -59,6 +57,10 @@ class CompletionTimerThread(TimerThread):
     '--purge-staging/--no-purge-staging', default=False,
     help='Clear staging database before starting.'
 )
+@click.option(
+    '--keep-historical-staging/--no-keep-historical-staging', default=False,
+    help='Keep staging database for historical runs.'
+)
 @click.argument(
     'source',
     type=click.Choice([s.NAME for s in SOURCES]),
@@ -66,7 +68,8 @@ class CompletionTimerThread(TimerThread):
 )
 @click.argument('args', nargs=-1)
 def run(
-        debug: bool, config: str | None, purge_staging: bool,
+        debug: bool, config: str | None,
+        purge_staging: bool, keep_historical_staging: bool,
         source: str, args: tuple[str, ...]
 ) -> None:
     try:
@@ -115,7 +118,7 @@ def run(
         # rate that data comes in so we need some mechanism to decouple the source
         # handling from the communication with the ingester via RabbitMQ. We use a
         # queue to do this.
-        queue = PriorityQueue(maxsize=QUEUE_SIZE)
+        queue = PriorityQueue()
 
         # Set up RabbitMQ handler.
         name=f'rx-{name}'
@@ -184,8 +187,8 @@ def run(
         ingester_liveness.stop()
         rmq.stop()
 
-    if historical:
-        db.remove()
+    if historical and not keep_historical_staging:
+        db.remove(force=True)
 
 
 if __name__ == '__main__':

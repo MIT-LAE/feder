@@ -6,13 +6,14 @@ import logging
 from queue import PriorityQueue
 import sys
 from threading import Thread, Event
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from feder.server import Config
 
 from ..utils import round_time
-from ..commands import SourceDoneCommand
+from ..commands import SourceDoneCommand, FileCompleteCommand
 
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,13 @@ class FileSource(Source):
         self.csv_files = expanded_csv_files
         for f in self.csv_files:
             logger.info('Processing %s', f)
-            self.process_file(f)
+            for fix_count, fix in enumerate(self.process_file(f)):
+                self.queue.put(fix)
+                if fix_count % 1000 == 0:
+                    while self.queue.qsize() > 100:
+                        # Wait for queue to drain...
+                        time.sleep(1)
+            self.queue.put(FileCompleteCommand())
 
         self.queue.put(SourceDoneCommand())
 

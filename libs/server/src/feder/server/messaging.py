@@ -1,3 +1,6 @@
+from collections import Counter
+import logging
+
 import numpy as np
 import pandas as pd
 import pika
@@ -5,6 +8,9 @@ import pika.credentials
 
 from .config import Config
 from .rabbitmq_pb2 import Trajectory
+
+
+logger = logging.getLogger(__name__)
 
 
 # Virtual host and exchange names for RabbitMQ processing.
@@ -29,23 +35,27 @@ def rmq_parameters(config: 'Config'):
 def build_trajectory_message(
         source: str, source_id: str, df: pd.DataFrame
 ) -> Trajectory:
-    _single_value_column_check(df, 'transponder_id')
-    _single_value_column_check(df, 'callsign')
-    _single_value_column_check(df, 'aircrafttype')
-    msg = Trajectory()
-    msg.source = source
-    msg.id = source_id
-    msg.transponder_id = df.transponder_id[0] or ''
-    msg.callsign = df.callsign[0] or ''
-    msg.aircrafttype = df.aircrafttype[0] or ''
-    msg.points.time.extend(df.time)
-    msg.points.lon.extend(df.lon)
-    msg.points.lat.extend(df.lat)
-    msg.points.alt.extend(_substitute_none(df.alt))
-    msg.points.alt_gnss.extend(_substitute_none(df.alt_gnss))
-    msg.points.heading.extend(_substitute_none(df.heading))
-    msg.points.on_ground.extend(df.on_ground)
-    return msg
+    try:
+        _single_value_column_check(df, 'transponder_id')
+        _single_value_column_check(df, 'callsign')
+        _single_value_column_check(df, 'aircrafttype')
+        msg = Trajectory()
+        msg.source = source
+        msg.id = source_id
+        msg.transponder_id = df.transponder_id[0] or ''
+        msg.callsign = df.callsign[0] or ''
+        msg.aircrafttype = df.aircrafttype[0] or ''
+        msg.points.time.extend(df.time)
+        msg.points.lon.extend(df.lon)
+        msg.points.lat.extend(df.lat)
+        msg.points.alt.extend(_substitute_none(df.alt))
+        msg.points.alt_gnss.extend(_substitute_none(df.alt_gnss))
+        msg.points.heading.extend(_substitute_none(df.heading))
+        msg.points.on_ground.extend(df.on_ground)
+        return msg
+    except Exception as e:
+        print('OOPS')
+        print(df)
 
 
 # TODO: Make this better.
@@ -69,9 +79,11 @@ def parse_trajectory_message(traj: Trajectory) -> tuple[str, str, pd.DataFrame]:
 
 def _single_value_column_check(df: pd.DataFrame, column_name: str):
     if len(set(df[column_name])) != 1:
-        raise ValueError(
-            f'inconsistent {column_name} in position fixes: {list(df[column_name])}'
-        )
+        msg = f'inconsistent {column_name} in position fixes: {list(df[column_name])}'
+        logger.warn(msg)
+
+        # Just take a majority vote.
+        df[column_name] = Counter(df[column_name]).most_common(1)[0][0]
 
 
 def _substitute_none(xs):
