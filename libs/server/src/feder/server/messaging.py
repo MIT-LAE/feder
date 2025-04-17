@@ -7,7 +7,7 @@ import pika
 import pika.credentials
 
 from .config import Config
-from .rabbitmq_pb2 import Trajectory
+from .trajectory_pb2 import Trajectory
 
 
 logger = logging.getLogger(__name__)

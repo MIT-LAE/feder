@@ -1,0 +1,10 @@
+import "feder/common/points.proto";
+
+message Trajectory {
+    required string source = 1;
+    required string id = 2;
+    required string transponder_id = 3;
+    required string callsign = 4;
+    optional string aircrafttype = 5;
+    required Points points = 6;
+}

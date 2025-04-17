@@ -10,10 +10,10 @@ from feder.server import (
     LivenessChecker
 )
 from feder.server.rmq import Consumer
-from feder.server.rabbitmq_pb2 import Trajectory
+from feder.server.trajectory_pb2 import Trajectory
 
 from .commands import StopCommand, RMQCommand
-from .db import DBCache
+from .db_cache import DBCache
 from .processor import Processor
 
 
@@ -34,9 +34,6 @@ def run(debug: bool, config: str | None) -> None:
 
     # Process configuration file.
     cfg = Config(config)
-
-    # Set up database connection cache.
-    db = DBCache(cfg)
 
     # Set up command queue.
     queue = Queue()
@@ -66,9 +63,15 @@ def run(debug: bool, config: str | None) -> None:
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
-    # Process messages from queue.
-    processor = Processor(cfg, db, queue, rmq)
-    processor.run()
+    try:
+        # Set up database connection cache.
+        db = DBCache(cfg.data_directory)
+
+        # Process messages from queue.
+        processor = Processor(cfg, db, queue, rmq)
+        processor.run()
+    finally:
+        db.close()
 
     # If we get here, the ingester has already stopped, so we just need to
     # clean up RabbitMQ.

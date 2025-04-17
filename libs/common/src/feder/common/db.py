@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from operator import attrgetter
+import os
+import sqlite3
 
 from .points_pb2 import Points
 
@@ -34,3 +36,22 @@ class Trajectory:
 
     def alt_range(self):
         return self._range('alt')
+
+
+class DB:
+    def __init__(self, db_file: str):
+        self.db_file = db_file
+        self._conn = None
+
+    @property
+    def conn(self):
+        if not os.path.exists(self.db_file):
+            raise ValueError(f'database file {self.db_file} does not exist')
+        if self._conn is None:
+            self._conn = sqlite3.connect(self.db_file)
+        return self._conn
+
+    def close(self):
+        if self._conn:
+            self._conn.close()
+            self._conn = None

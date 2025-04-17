@@ -3,11 +3,11 @@ from queue import Queue
 from typing import cast
 
 from feder.server import Config, RMQ, LivenessChecker
-from feder.server.rabbitmq_pb2 import Trajectory
+from feder.server.trajectory_pb2 import Trajectory
 import feder.server.rmq as rmq
 
 from .commands import StopCommand, RMQCommand
-from .db import DBCache
+from .db_cache import DBCache
 
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,7 @@ class Processor:
                         case rmq.DataMessage() as msg:
                             trajectory = cast(Trajectory, msg.message)
                             logger.info('TRAJECTORY message: %s', trajectory.callsign)
+                            self.db.add_trajectory(trajectory)
                         case rmq.RPCMessage() as msg:
                             match msg.endpoint:
                                 case 'liveness:ingester':

@@ -937,14 +937,6 @@ class RMQ(Thread):
             request_message: RPCMessage,
             serialized_reply_message: str
     ):
-        endpoint = request_message.endpoint
-        response_class = self._rpc_endpoints_by_name[endpoint].response_class
-        if not isinstance(reply_message, response_class):
-            raise ValueError(
-                f'invalid response class "{type(reply_message)}" '
-                f'for RPC endpoint "{endpoint}"'
-            )
-
         # Encode Protocol Buffers message and publish on the RPC exchange
         # using the routing key to send the reply back to the requester.
         assert self._rpc_channel is not None
