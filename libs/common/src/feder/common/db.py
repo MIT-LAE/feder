@@ -6,6 +6,7 @@ import sqlite3
 from typing import Generator
 
 from .models import Point, Trajectory
+from feder.common.points_pb2 import Points
 
 
 class QueryType(Enum):
