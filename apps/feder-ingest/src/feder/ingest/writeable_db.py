@@ -1,5 +1,5 @@
+from datetime import datetime, date
 import logging
-from operator import attrgetter
 import os
 import sqlite3
 
@@ -11,17 +11,17 @@ logger = logging.getLogger(__name__)
 
 
 class WritableDB(DB):
-    def __init__(self, db_file: str):
-        super().__init__(db_file)
-        if not os.path.exists(db_file):
-            self._create_db(db_file)
+    def __init__(self, data_dir: str, ref_date: datetime | date | int):
+        super().__init__(data_dir, ref_date, must_exist=False)
+        if not os.path.exists(self._db_file()):
+            self._create_db()
 
-    def _create_db(self, db_file: str) -> None:
-        logger.info('creating database file %s', db_file)
+    def _create_db(self) -> None:
+        logger.info('creating database file %s', self._db_file())
 
         # Need to make a separate connection here because this will be called
         # before the database file exists.
-        conn = sqlite3.connect(db_file)
+        conn = sqlite3.connect(self._db_file())
         cur = conn.cursor()
 
         cur.execute("""

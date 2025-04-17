@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 import logging
 import os
 
@@ -20,27 +20,19 @@ class DBCache:
             )
         self.data_dir = data_dir
         self.connection_cache_size = connection_cache_size
-        self._connections: LastUpdatedOrderedDict[str, WritableDB] = LastUpdatedOrderedDict()
+        self._connections: LastUpdatedOrderedDict[date, WritableDB] = LastUpdatedOrderedDict()
 
-    def _db_file(self, d: datetime | int) -> str:
-        # One database file per day named after year and day of year.
-        if isinstance(d, int):
-            d = datetime.fromtimestamp(d)
-        yr = d.year
-        doy = d.timetuple().tm_yday
-        return os.path.join(self.data_dir, f'{yr:04d}-{doy:03d}.sqlite')
-
-    def connect(self, d: datetime | int) -> WritableDB:
-        if isinstance(d, int):
-            d = datetime.fromtimestamp(d)
-        logger.info('connect to DB for %s', d.strftime('%Y-%j'))
+    def connect(self, ref_date: datetime | date | int) -> WritableDB:
+        if isinstance(ref_date, int):
+            ref_date = datetime.fromtimestamp(ref_date)
+        if isinstance(ref_date, datetime):
+            ref_date = ref_date.date()
 
         # Open database connection for the given date, retrieving it from the
         # cache if it exists. The size of the cache is kept at the size
         # specified in the constructor.
-        db_file = self._db_file(d)
-        conn = self._connections.get(db_file, WritableDB(db_file))
-        self._connections[db_file] = conn
+        conn = self._connections.get(ref_date, WritableDB(self.data_dir, ref_date))
+        self._connections[ref_date] = conn
         if len(self._connections) > self.connection_cache_size:
             _, old_conn = self._connections.popitem(last=False)
             old_conn.close()

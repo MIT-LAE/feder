@@ -22,16 +22,31 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from feder.common import points_pb2 as feder_dot_common_dot_points__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x66\x65\x64\x65r/server/trajectory.proto\x1a\x19\x66\x65\x64\x65r/common/points.proto\"\x81\x01\n\nTrajectory\x12\x0e\n\x06source\x18\x01 \x02(\t\x12\n\n\x02id\x18\x02 \x02(\t\x12\x16\n\x0etransponder_id\x18\x03 \x02(\t\x12\x10\n\x08\x63\x61llsign\x18\x04 \x02(\t\x12\x14\n\x0c\x61ircrafttype\x18\x05 \x01(\t\x12\x17\n\x06points\x18\x06 \x02(\x0b\x32\x07.Points')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x1d\x66\x65\x64\x65r/server/trajectory.proto\"\x81\x01\n\nTrajectory\x12\x0e\n\x06source\x18\x01 \x02(\t\x12\n\n\x02id\x18\x02 \x02(\t\x12\x16\n\x0etransponder_id\x18\x03 \x02(\t\x12\x10\n\x08\x63\x61llsign\x18\x04 \x02(\t\x12\x14\n\x0c\x61ircrafttype\x18\x05 \x01(\t\x12\x17\n\x06points\x18\x06 \x02(\x0b\x32\x07.Points\"\x8f\x01\n\x06Points\x12\x10\n\x04time\x18\x01 \x03(\x04\x42\x02\x10\x01\x12\x0f\n\x03lon\x18\x02 \x03(\x02\x42\x02\x10\x01\x12\x0f\n\x03lat\x18\x03 \x03(\x02\x42\x02\x10\x01\x12\x0f\n\x03\x61lt\x18\x04 \x03(\x02\x42\x02\x10\x01\x12\x14\n\x08\x61lt_gnss\x18\x05 \x03(\x02\x42\x02\x10\x01\x12\x13\n\x07heading\x18\x06 \x03(\x02\x42\x02\x10\x01\x12\x15\n\ton_ground\x18\x07 \x03(\x08\x42\x02\x10\x01')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'feder.server.trajectory_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_TRAJECTORY']._serialized_start=61
-  _globals['_TRAJECTORY']._serialized_end=190
+  _globals['_POINTS'].fields_by_name['time']._loaded_options = None
+  _globals['_POINTS'].fields_by_name['time']._serialized_options = b'\020\001'
+  _globals['_POINTS'].fields_by_name['lon']._loaded_options = None
+  _globals['_POINTS'].fields_by_name['lon']._serialized_options = b'\020\001'
+  _globals['_POINTS'].fields_by_name['lat']._loaded_options = None
+  _globals['_POINTS'].fields_by_name['lat']._serialized_options = b'\020\001'
+  _globals['_POINTS'].fields_by_name['alt']._loaded_options = None
+  _globals['_POINTS'].fields_by_name['alt']._serialized_options = b'\020\001'
+  _globals['_POINTS'].fields_by_name['alt_gnss']._loaded_options = None
+  _globals['_POINTS'].fields_by_name['alt_gnss']._serialized_options = b'\020\001'
+  _globals['_POINTS'].fields_by_name['heading']._loaded_options = None
+  _globals['_POINTS'].fields_by_name['heading']._serialized_options = b'\020\001'
+  _globals['_POINTS'].fields_by_name['on_ground']._loaded_options = None
+  _globals['_POINTS'].fields_by_name['on_ground']._serialized_options = b'\020\001'
+  _globals['_TRAJECTORY']._serialized_start=34
+  _globals['_TRAJECTORY']._serialized_end=163
+  _globals['_POINTS']._serialized_start=166
+  _globals['_POINTS']._serialized_end=309
 # @@protoc_insertion_point(module_scope)
