@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from ..conftest import TEST_NOW  # noqa
+from .conftest import TEST_NOW
 
 
 def test_complete_trajectory_identification(db):

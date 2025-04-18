@@ -3,20 +3,18 @@ import time
 
 from feder.server.rmq import DataMessage
 
-from ..test_pb2 import PubTest
+from .messages import PubTest
 
 
 def test_publish_message(rmq_publisher):
-    message = PubTest()
-    message.name = 'test-1'
+    message = PubTest(name = 'test-1')
     message_number = rmq_publisher.send('test_exchange', message)
     assert message_number > 0
 
 
 def test_consume_message(rmq_publisher, rmq_consumer):
     # Publish a new message.
-    message = PubTest()
-    message.name = 'test-2'
+    message = PubTest(name = 'test-2')
     rmq_publisher.send('test_exchange', message)
 
     # Consume messages.

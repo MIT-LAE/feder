@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from feder.server import Config
 
+from feder.server import DataSource
 from ..utils import round_time
 from ..commands import SourceDoneCommand, FileCompleteCommand
 
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class Source(Thread):
+    SOURCE = None
     NAME = None
 
     def __init__(self, config: 'Config', queue: PriorityQueue, *args: str):
@@ -27,10 +29,16 @@ class Source(Thread):
         self.config = config
         self.queue = queue
         self.args = args
-        if self.NAME is None:
-            raise ValueError('unknown source name')
+        if self.SOURCE is None:
+            raise ValueError('unknown source')
         self.wait_finished = Event()
         self.stopped = False
+
+    @property
+    def name(self):
+        if self.NAME is not None:
+            return self.NAME
+        return str(self.SOURCE)
 
     def stop(self):
         self.stopped = True
@@ -87,7 +95,7 @@ class DateSource(Source):
             logger.critical(
                 'date-based source "%s" runs either in live mode '
                 'or needs a start and end timestamp',
-                self.NAME
+                str(self.SOURCE)
             )
             sys.exit(1)
 
@@ -108,6 +116,6 @@ class DateSource(Source):
                 logger.critical(
                     'invalid start or end time supplied '
                     'for date-based source "%s"',
-                    self.NAME
+                    str(self.SOURCE)
                 )
                 sys.exit(1)

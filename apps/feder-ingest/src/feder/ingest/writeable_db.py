@@ -53,7 +53,7 @@ class WritableDB(DB):
              aircraft_type, points)
             VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
             (traj.source, traj.id, traj.transponder_id, traj.callsign,
-             traj.aircrafttype, traj.points.SerializeToString())
+             traj.aircraft_type, traj.points.SerializeToString())
         )
         id = cur.fetchone()[0]
 

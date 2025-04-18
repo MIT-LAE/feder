@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from feder.server.sources import CONTRAILS_API_SOURCE_NAME
+from feder.server import DataSource
 from . import DateSource
 from ..commands import SourceErrorCommand, SourcePositionCommand, StopCommand
 from ..utils import round_time
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class ContrailsAPISource(DateSource):
-    NAME = CONTRAILS_API_SOURCE_NAME
+    SOURCE = DataSource.CONTRAILS_API
 
     # The Contrails API provides hourly ADS-B files.
     DATE_RESOLUTION = 'h'
@@ -28,7 +28,7 @@ class ContrailsAPISource(DateSource):
 
     def __init__(self, config: 'Config', queue: 'PriorityQueue', *args: str):
         super().__init__(config, queue, *args)
-        self.api_key = config.credentials(self.NAME)['api_key']
+        self.api_key = config.credentials(self.SOURCE)['api_key']
 
         # There's no way to check that the credentials are OK at this point.
         # We just need to go ahead and try the ADS-B endpoint and generate a
@@ -66,7 +66,7 @@ class ContrailsAPISource(DateSource):
                 transponder_id=tup.icao_address,
                 time=tup.timestamp,
                 callsign=tup.callsign,
-                aircrafttype=tup.aircraft_type_icao,
+                aircraft_type=tup.aircraft_type_icao,
                 lat=tup.latitude,
                 lon=tup.longitude,
                 alt=tup.altitude_baro,
@@ -76,7 +76,7 @@ class ContrailsAPISource(DateSource):
             ))
 
     def run_live(self):
-        retrieval_time = datetime.now() - self.config.data_lag(self.NAME)
+        retrieval_time = datetime.now() - self.config.data_lag(self.SOURCE)
         retrieval_time = round_time(retrieval_time - self.DATE_INTERVAL, 'h')
         retries = 0
         while not self.stopped:

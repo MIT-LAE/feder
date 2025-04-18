@@ -3,10 +3,9 @@ import functools
 import logging
 from queue import Queue
 from threading import Thread, Event, Timer
-from typing import Callable
+from typing import Callable, Any
 import uuid
 
-import google.protobuf.message as pbmsg
 from pika import (
     ConnectionParameters, BasicProperties, SelectConnection, spec
 )
@@ -43,7 +42,7 @@ class NackMessage(Message):
 class DataMessage(Message):
     """Received data message sent to output queue."""
     exchange: str
-    message: type[pbmsg.Message]
+    message: Any
 
 
 @dataclass
@@ -52,7 +51,7 @@ class RPCMessage(Message):
     endpoint: str
     reply_to: str
     correlation_id: str
-    message: type[pbmsg.Message]
+    message: Any
 
 
 @dataclass
@@ -79,7 +78,7 @@ class RPCEndpoint:
     response_class: type
 
 
-RPCCallback = Callable[[str, type[pbmsg.Message]], None]
+type RPCCallback = Callable[[str, type], None]
 RPCErrorCallback = Callable[[str, str], None]
 
 
@@ -90,6 +89,9 @@ class RPCData:
     error_callback: RPCErrorCallback | None
     timeout_timer: Timer | None
 
+
+# The type variable M here is the base message class used for all
+# communications.
 
 class RMQ(Thread):
     """Class to manage RabbitMQ interactions for Feder processes.
@@ -128,6 +130,7 @@ class RMQ(Thread):
             name: str,
             parameters: ConnectionParameters,
             out_queue: Queue,
+            message_class: type,
             exchanges: list[str],
             consumers: list[Consumer] | None = None,
             wrapper_class: type | None = None,
@@ -144,6 +147,7 @@ class RMQ(Thread):
         :param pika.ConnectionParameters parameters: Connection parameters
         :param queue.Queue out_queue: Output queue for consumption messages,
             publish confirmation ACK/NACK messages and RPC messages
+        :param type message_class: Base class for all messages sent.
         :param list[str] exchanges: List of RabbitMQ exchanges to create
         :param list[Consumer] | None consumers: Consumption configuration
             associating exchange names with Protocol Buffers message types for
@@ -158,12 +162,14 @@ class RMQ(Thread):
             RabbitMQ after connection failure
         :param float ready_wait_interval: Time to wait (s) to for RabbitMQ
             infrastructure setup when starting RabbitMQ handler thread
+
         """
         super().__init__(*args, **kwargs)
 
         self.name = name
         self.parameters = parameters
         self.out_queue = out_queue
+        self.base_message_class = message_class
         self.wrapper_class = wrapper_class
         self.exchanges = exchanges
         self.consumers = consumers or []
@@ -268,12 +274,19 @@ class RMQ(Thread):
     def send(
             self,
             exchange: str,
-            message: type[pbmsg.Message],
+            message: Any,
             persistent: bool = True
     ) -> int:
         """Send a Protocol Buffers message to an exchange."""
 
         self._check_ready()
+
+        if not isinstance(message, self.base_message_class):
+            raise ValueError('bad message type')
+        try:
+            packed_message = message.pack()
+        except Exception:
+            raise ValueError('message type does not support packing')
 
         # Message number used for publish confirmation: returned to caller for
         # later correlation with ACK/NACK messages.
@@ -283,7 +296,7 @@ class RMQ(Thread):
         # I/O loop.
         self._connection.ioloop.add_callback_threadsafe(
             functools.partial(
-                self._send, exchange, message.SerializeToString(), persistent
+                self._send, exchange, packed_message, persistent
             )
         )
         return self._message_number
@@ -291,7 +304,7 @@ class RMQ(Thread):
     def send_rpc(
             self,
             endpoint: str,
-            payload: type[pbmsg.Message],
+            payload: Any,
             callback: RPCCallback,
             error_callback: RPCErrorCallback | None = None,
             timeout: int = None
@@ -309,6 +322,11 @@ class RMQ(Thread):
                 f'invalid request class "{type(payload)}" '
                 f'for RPC endpoint "{endpoint}"'
             )
+        try:
+            packed_payload = payload.pack()
+        except Exception:
+            raise ValueError('payload type does not support packing')
+
 
         # Generate unique correlation ID for request and save callback for
         # reply processing.
@@ -329,8 +347,7 @@ class RMQ(Thread):
         # I/O loop.
         self._connection.ioloop.add_callback_threadsafe(
             functools.partial(
-                self._send_rpc, endpoint,
-                payload.SerializeToString(), correlation_id
+                self._send_rpc, endpoint, packed_payload, correlation_id
             )
         )
 
@@ -346,7 +363,7 @@ class RMQ(Thread):
     def rpc_reply(
             self,
             request_message: RPCMessage,
-            reply_message: type[pbmsg.Message]
+            reply_message: Any
     ) -> int:
         """Send a reply to an RPC invocation."""
 
@@ -367,6 +384,11 @@ class RMQ(Thread):
                 f'for RPC endpoint "{endpoint}"'
             )
 
+        try:
+            packed_reply_message = reply_message.pack()
+        except Exception:
+            raise ValueError('reply message type does not support packing')
+
         # Message number used for publish confirmation: returned to caller for
         # later correlation with ACK/NACK messages. I think we need to
         # increment this here even though we don't use the message number,
@@ -377,8 +399,7 @@ class RMQ(Thread):
         # I/O loop.
         self._connection.ioloop.add_callback_threadsafe(
             functools.partial(
-                self._rpc_reply, request_message,
-                reply_message.SerializeToString()
+                self._rpc_reply, request_message, packed_reply_message
             )
         )
         return self._message_number
@@ -428,9 +449,10 @@ class RMQ(Thread):
                     raise ValueError(
                         f'consumer exchange name "{c.exchange}" not in exchanges list'
                     )
-                if not issubclass(c.message_class, pbmsg.Message):
+                if not issubclass(c.message_class, self.base_message_class):
                     raise ValueError(
-                        f'receive class "{c.message_class}" not a Protocol Buffers message'
+                        f'receive class "{c.message_class}" not a '
+                        'subclass of the base message class'
                     )
 
     def _check_rpc_server(self):
@@ -793,10 +815,22 @@ class RMQ(Thread):
     #----------------------------------------------------------------------------
 
     def _on_message(self, consumer: Consumer, _ch, method, props, body):
-        # All messages are passed as Protocol Buffers messages, so parse the
-        # supplied message class from the message body.
-        message = consumer.message_class()
-        message.ParseFromString(body)
+        # All messages are passed using a message class hierarchy that knows
+        # how to pack and unpack messages, so parse the supplied message class
+        # from the message body.
+        try:
+            message = self.base_message_class.unpack(body)
+            if not isinstance(message, consumer.message_class):
+                raise ValueError(
+                    f'incorrect message class "{type(message)}"'
+                )
+        except Exception:
+            logger.exception(
+                'error unpacking message body for exchange "%s"',
+                consumer.exchange
+            )
+            self._channel.basic_nack(method.delivery_tag)
+            return
 
         # Pass the received message to the outer application context,
         # including information about the receivinig exchange and delivery
@@ -818,10 +852,13 @@ class RMQ(Thread):
         if endpoint_name not in self._rpc_endpoints_by_name:
             raise ValueError(f'unknown RPC endpoint: {endpoint_name}')
         endpoint = self._rpc_endpoints_by_name[endpoint_name]
-        message = endpoint.request_class()
         try:
-            message.ParseFromString(body)
-        except pbmsg.DecodeError as err:
+            message = self.base_message_class.unpack(body)
+            if not isinstance(message, endpoint.request_class):
+                raise ValueError(
+                    f'incorrect RPC request class "{type(message)}"'
+                )
+        except Exception as err:
             self._rpc_channel.basic_nack(method.delivery_tag)
             self.out_queue.put(self._wrap(
                 RPCErrorMessage(
@@ -850,19 +887,21 @@ class RMQ(Thread):
 
     def _on_rpc_response(self, _ch, method, props, body):
         # Ignore responses for any timed out or cancelled requests.
-        if props.correlation_id not in self._rpc_callbacks:
+        rpc_data = self._rpc_callbacks.get(props.correlation_id)
+        if rpc_data is None:
             return
 
+        if rpc_data.timeout_timer is not None:
+            rpc_data.timeout_timer.cancel()
+
+        # Parse the response using the endpoint's response message class.
         try:
-            # Parse the response using the endpoint's response Protocol
-            # Buffers class.
-            rpc_data = self._rpc_callbacks[props.correlation_id]
-            if rpc_data.timeout_timer is not None:
-                rpc_data.timeout_timer.cancel()
-            response = rpc_data.endpoint.response_class()
-            response.ParseFromString(body)
-            rpc_data.callback(props.correlation_id, response)
-        except pbmsg.DecodeError as err:
+            response = self.base_message_class.unpack(body)
+            if not isinstance(response, rpc_data.endpoint.response_class):
+                raise ValueError(
+                    f'incorrect RPC response class "{type(response)}"'
+                )
+        except Exception as err:
             self._rpc_channel.basic_nack(method.delivery_tag)
             if rpc_data.error_callback is not None:
                 rpc_data.error_callback(
@@ -872,6 +911,13 @@ class RMQ(Thread):
             return
         finally:
             del self._rpc_callbacks[props.correlation_id]
+
+        try:
+            rpc_data.callback(props.correlation_id, response)
+        except Exception:
+            # Ignore exceptions here: if the client throws an exception on a
+            # response, there's nothing we can do anyway.
+            pass
 
     def _on_delivery_confirmation(self, frame):
         # When a publish confirmation ACK or NACK message is received, we send

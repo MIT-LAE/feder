@@ -7,13 +7,7 @@ from typing import Any
 from pandas import NaT, Timedelta
 from pandas._libs import NaTType
 
-from .sources import (
-    CONTRAILS_API_SOURCE_NAME,
-    FLIGHTAWARE_SOURCE_NAME,
-    OPENSKY_SOURCE_NAME,
-    OPENSKY_STATE_VECTOR_SOURCE_NAME,
-    SOURCE_NAMES
-)
+from .constants import DataSource
 
 
 logger = logging.getLogger(__name__)
@@ -52,19 +46,19 @@ class Config:
             logger.critical(exc.args[0])
             sys.exit(1)
 
-    def enabled(self, source: str) -> bool:
+    def enabled(self, source: DataSource) -> bool:
         return self._source_enabled[source]
 
-    def completion_delay(self, source: str) -> Timedelta:
+    def completion_delay(self, source: DataSource) -> Timedelta:
         return self._source_completion_delay[source]
 
-    def completion_interval(self, source: str) -> Timedelta:
+    def completion_interval(self, source: DataSource) -> Timedelta:
         return self._source_completion_interval[source]
 
-    def data_lag(self, source: str) -> Timedelta:
+    def data_lag(self, source: DataSource) -> Timedelta:
         return self._source_data_lag[source]
 
-    def credentials(self, source: str) -> dict[str, Any]:
+    def credentials(self, source: DataSource) -> dict[str, Any]:
         return self._source_credentials[source]
 
     def _init_paths(self):
@@ -100,34 +94,34 @@ class Config:
             'sources', 'data-lag', default=_td(Timedelta(0))
         )
 
-        self._source_enabled: dict[str, bool] = self._get_sources_bool('enabled', default=False)
-        self._source_completion_delay: dict[str, Timedelta] = self._get_sources_interval(
+        self._source_enabled: dict[DataSource, bool] = self._get_sources_bool('enabled', default=False)
+        self._source_completion_delay: dict[DataSource, Timedelta] = self._get_sources_interval(
             'completion-delay', default=def_comp_delay
         )
-        self._source_completion_interval: dict[str, Timedelta] = self._get_sources_interval(
+        self._source_completion_interval: dict[DataSource, Timedelta] = self._get_sources_interval(
             'completion-interval', default=def_comp_interval
         )
-        self._source_data_lag: dict[str, Timedelta] = self._get_sources_interval(
+        self._source_data_lag: dict[DataSource, Timedelta] = self._get_sources_interval(
             'data-lag', default=def_data_lag
         )
 
-        self._source_credentials: dict[str, Any] = {}
+        self._source_credentials: dict[DataSource, Any] = {}
 
         for s in [
-                CONTRAILS_API_SOURCE_NAME,
-                OPENSKY_SOURCE_NAME,
-                OPENSKY_STATE_VECTOR_SOURCE_NAME
+                DataSource.CONTRAILS_API,
+                DataSource.OPENSKY,
+                DataSource.OPENSKY_STATE_VECTORS
         ]:
             if self._source_enabled[s]:
-                api_key = self._get_str(['source', s], 'api-key')
+                api_key = self._get_str(['source', str(s)], 'api-key')
                 if api_key is not None:
                     self._source_credentials[s] = dict(api_key=api_key)
 
-        if self._source_enabled[FLIGHTAWARE_SOURCE_NAME]:
-            username = self._get_str(['source', FLIGHTAWARE_SOURCE_NAME], 'username')
-            password = self._get_str(['source', FLIGHTAWARE_SOURCE_NAME], 'password')
+        if self._source_enabled[DataSource.FLIGHTAWARE]:
+            username = self._get_str(['source', DataSource.FLIGHTAWARE], 'username')
+            password = self._get_str(['source', DataSource.FLIGHTAWARE], 'password')
             if username is not None and password is not None:
-                self._source_credentials[FLIGHTAWARE_SOURCE_NAME] = dict(
+                self._source_credentials[DataSource.FLIGHTAWARE] = dict(
                     username=username, password=password
                 )
 
@@ -203,14 +197,14 @@ class Config:
 
     def _get_sources_bool(self, key: str, default: bool | None = None):
         return {
-            s: self._get_bool(['source', s], key, default=default)
-            for s in SOURCE_NAMES
+            s: self._get_bool(['source', str(s)], key, default=default)
+            for s in DataSource
         }
 
     def _get_sources_interval(self, key: str, default: Timedelta | None = None):
         return {
-            s: self._get_interval(['source', s], key, default=default)
-            for s in SOURCE_NAMES
+            s: self._get_interval(['source', str(s)], key, default=default)
+            for s in DataSource
         }
 
 def _td(td: Timedelta | NaTType) -> Timedelta:

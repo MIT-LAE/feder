@@ -1,11 +1,9 @@
-from feder.server.sources import (
-    OPENSKY_SOURCE_NAME, OPENSKY_STATE_VECTOR_SOURCE_NAME
-)
+from feder.server import DataSource
 
 
 class OpenSkySource:
-    NAME = OPENSKY_SOURCE_NAME
+    SOURCE = DataSource.OPENSKY
 
 
 class OpenSkyStateVectorSource:
-    NAME = OPENSKY_STATE_VECTOR_SOURCE_NAME
+    SOURCE = DataSource.OPENSKY_STATE_VECTORS

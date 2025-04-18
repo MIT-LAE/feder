@@ -3,7 +3,7 @@ from typing import cast
 
 from feder.server.rmq import RPCMessage
 
-from ..test_pb2 import (  # noqa
+from .messages import (  # noqa
     FibonacciRequest, FibonacciResponse,
     FactorialRequest, FactorialResponse
 )
@@ -24,23 +24,23 @@ def fact(n):
 
 
 def fib_proc(rmq, msg):
-    request = cast(FibonacciRequest, msg.message)
-    response = FibonacciResponse()
-    response.name = request.name
-    response.data = fib(request.data)
-    response.success = True
+    response = FibonacciResponse(
+        name=msg.message.name,
+        data=fib(msg.message.data),
+        success=True
+    )
     rmq.rpc_reply(msg, response)
 
 
 def fact_proc(rmq, msg):
-    request = cast(FactorialRequest, msg.message)
-    if request.data == 3:
+    if msg.message.data == 3:
         # Simulate breakagee on the server side.
         return
-    response = FactorialResponse()
-    response.name = request.name
-    response.data = fact(request.data)
-    response.success = True
+    response = FactorialResponse(
+        name=msg.message.name,
+        data=fact(msg.message.data),
+        success=True
+    )
     rmq.rpc_reply(msg, response)
 
 
@@ -120,10 +120,8 @@ def test_rpc(rmq_rpc_client, rmq_rpc_server):
             request_class = FactorialRequest
             endpoint = 'factorial'
             fn = fact
-        request = request_class()
         name = f'{endpoint}-{n}'
-        request.name = name
-        request.data = n
+        request = request_class(name=name, data=n)
         # print(f'Sending {endpoint} request: {name} {n}')
         correlation_id = rmq_rpc_client.send_rpc(
             endpoint, request, result_callback, error_callback, timeout=1

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from feder.server import Config
 
-from feder.server.sources import CSV_SOURCE_NAME
+from feder.server import DataSource
 from ..commands import BatchSourcePositionCommand
 from . import FileSource
 
@@ -28,7 +28,7 @@ class ColIndex:
         self.hexid_col = row.index('hexid')
         self.clock_col = row.index('clock')
         self.ident_col = row.index('ident')
-        self.aircrafttype_col = row.index('aircrafttype')
+        self.aircraft_type_col = row.index('aircraft_type')
         self.lat_col = row.index('lat')
         self.lon_col = row.index('lon')
         self.alt_col = row.index('alt')
@@ -40,7 +40,8 @@ class ColIndex:
 
 
 class CSVSource(FileSource):
-    NAME = CSV_SOURCE_NAME
+    SOURCE = DataSource.FLIGHTAWARE
+    NAME = 'csv'
     BATCH_SIZE = 100
 
     def __init__(self, config: 'Config', queue: PriorityQueue, *args: str):
@@ -52,7 +53,7 @@ class CSVSource(FileSource):
         self._transponder_ids = []
         self._times = []
         self._callsigns = []
-        self._aircrafttypes = []
+        self._aircraft_types = []
         self._lats = []
         self._lons = []
         self._alts = []
@@ -82,7 +83,7 @@ class CSVSource(FileSource):
                 self._transponder_ids.append(row[idx.hexid_col])
                 self._times.append(datetime.fromtimestamp(int(row[idx.clock_col])))
                 self._callsigns.append(row[idx.ident_col])
-                self._aircrafttypes.append(n(row, idx.aircrafttype_col, str))
+                self._aircraft_types.append(n(row, idx.aircraft_type_col, str))
                 self._lats.append(float(row[idx.lat_col]))
                 self._lons.append(float(row[idx.lon_col]))
                 self._alts.append(n(row, idx.alt_col, int))
@@ -94,7 +95,7 @@ class CSVSource(FileSource):
                 if self._nrows == self.BATCH_SIZE:
                     yield BatchSourcePositionCommand(
                         self._source_ids, self._transponder_ids, self._times,
-                        self._callsigns, self._aircrafttypes,
+                        self._callsigns, self._aircraft_types,
                         self._lats, self._lons, self._alts, self._alts_gnss,
                         self._headings, self._on_grounds
                     )
@@ -103,7 +104,7 @@ class CSVSource(FileSource):
             if self._nrows > 0:
                 yield BatchSourcePositionCommand(
                     self._source_ids, self._transponder_ids, self._times,
-                    self._callsigns, self._aircrafttypes,
+                    self._callsigns, self._aircraft_types,
                     self._lats, self._lons, self._alts, self._alts_gnss,
                     self._headings, self._on_grounds
                 )

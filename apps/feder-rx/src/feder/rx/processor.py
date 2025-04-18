@@ -2,9 +2,10 @@ from datetime import datetime
 import logging
 from queue import PriorityQueue
 
-from feder.server import Config, RMQ
+from feder.server import Config, RMQ, DataSource
 import feder.server.rmq as rmq
-from feder.server.messaging import build_trajectory_message
+from feder.server.messages import Trajectory
+
 from .commands import (
     SourcePositionCommand, BatchSourcePositionCommand,
     SourceErrorCommand, SourceDoneCommand,
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 class Processor:
     def __init__(
             self,
-            config: Config, source: str, historical: bool,
+            config: Config, source: DataSource, historical: bool,
             db: DB, queue: PriorityQueue, rmq: RMQ
     ):
         self.config = config
@@ -141,7 +142,7 @@ class Processor:
             self.horizon_reference = cmd.time
         self.db.save_position(
             cmd.source_id, cmd.transponder_id, cmd.time,
-            cmd.callsign, cmd.aircrafttype,
+            cmd.callsign, cmd.aircraft_type,
             cmd.lat, cmd.lon, cmd.alt, cmd.alt_gnss,
             cmd.heading, cmd.on_ground
         )
@@ -156,7 +157,7 @@ class Processor:
             self.horizon_reference = cmd.times[-1]
         self.db.save_positions(
             cmd.source_ids, cmd.transponder_ids, cmd.times,
-            cmd.callsigns, cmd.aircrafttypes,
+            cmd.callsigns, cmd.aircraft_types,
             cmd.lats, cmd.lons, cmd.alts, cmd.alts_gnss,
             cmd.headings, cmd.on_grounds
         )
@@ -240,7 +241,7 @@ class Processor:
             return None
 
         # Build trajectory payload to send to ingester.
-        payload = build_trajectory_message(self.source, source_id, df)
+        payload = Trajectory.build(self.source, source_id, df)
 
         # Send trajectory payload out over RabbitMQ, returning message number
         # for ACK/NACK processing.

@@ -1,5 +1,5 @@
-from feder.server.sources import FLIGHTAWARE_SOURCE_NAME
+from feder.server import DataSource
 
 
 class FlightAwareSource:
-    NAME = FLIGHTAWARE_SOURCE_NAME
+    SOURCE = DataSource.FLIGHTAWARE

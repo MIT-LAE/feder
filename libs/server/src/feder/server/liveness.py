@@ -3,12 +3,10 @@ import logging
 from queue import Queue
 from threading import Thread, Event
 
-from google.protobuf.message import Message
-
 from .config import Config
-from .sources import SOURCE_NAMES
+from .constants import DataSource
 from .rmq import RMQ, RPCEndpoint, RPCMessage
-from .liveness_pb2 import LivenessQuery, LivenessResponse, LivenessStatus
+from .messages import LivenessQuery, LivenessResponse, Liveness
 
 
 logger = logging.getLogger(__name__)
@@ -21,7 +19,7 @@ class LivenessChecker(Thread):
 
     @staticmethod
     def rpc_endpoints(cfg: Config) -> list[RPCEndpoint]:
-        names = ['ingester'] + list(filter(cfg.enabled, SOURCE_NAMES))
+        names = ['ingester'] + [str(s) for s in DataSource if cfg.enabled(s)]
         return [
             RPCEndpoint(
                 LivenessChecker.endpoint_name(name),
@@ -35,7 +33,7 @@ class LivenessChecker(Thread):
     def send_reply(
             rmq: RMQ,
             query: RPCMessage,
-            status: LivenessStatus = LivenessStatus.LIVENESS_OK
+            status: Liveness = Liveness.OK
     ):
         response = LivenessResponse()
         response.source = rmq.name
@@ -88,7 +86,7 @@ class LivenessChecker(Thread):
             self._live = status
             self._waiting.set()
 
-    def _callback(self, correlation_id: str, message: Message):
+    def _callback(self, correlation_id: str, message: LivenessResponse):
         logger.info('liveness response from %s', self.endpoint)
         # TODO: Save last response timestamp and status? More intelligent
         # processing here?
@@ -106,8 +104,7 @@ class LivenessChecker(Thread):
     def run(self):
         while not self._stopped:
             self._waiting = Event()
-            query = LivenessQuery()
-            query.source = self.rmq.name
+            query = LivenessQuery(source=self.rmq.name)
             self._correlation_id = self.rmq.send_rpc(
                 self.endpoint, query,
                 self._callback,

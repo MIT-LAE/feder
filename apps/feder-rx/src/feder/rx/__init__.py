@@ -34,7 +34,7 @@ SOURCES = [
     OpenSkyStateVectorSource
 ]
 
-SOURCES_BY_NAME = {s.NAME: s for s in SOURCES}
+SOURCES_BY_NAME = {str(s.SOURCE): s for s in SOURCES}
 
 
 class CompletionTimerThread(TimerThread):
@@ -63,7 +63,7 @@ class CompletionTimerThread(TimerThread):
 )
 @click.argument(
     'source',
-    type=click.Choice([s.NAME for s in SOURCES]),
+    type=click.Choice([str(s.SOURCE) for s in SOURCES]),
     required=True
 )
 @click.argument('args', nargs=-1)

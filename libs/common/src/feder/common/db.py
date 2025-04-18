@@ -6,7 +6,6 @@ import sqlite3
 from typing import Generator
 
 from .models import Point, Trajectory
-from feder.common.points_pb2 import Points
 
 
 class QueryType(Enum):
@@ -149,7 +148,7 @@ class DB:
             ids
         )
         for traj_rec in cur:
-            points = Points.FromString(traj_rec[5])
+            points = Point.unpack(traj_rec[5])
             pts = list(map(
                 Point,
                 points.time, points.lat, points.lon, points.alt,

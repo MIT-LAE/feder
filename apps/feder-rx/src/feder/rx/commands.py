@@ -27,7 +27,7 @@ class SourcePositionCommand(Command):
     transponder_id: str
     time: datetime
     callsign: str
-    aircrafttype: str | None
+    aircraft_type: str | None
     lat: float
     lon: float
     alt: int | None
@@ -44,7 +44,7 @@ class BatchSourcePositionCommand(Command):
     transponder_ids: list[str]
     times: list[datetime]
     callsigns: list[str]
-    aircrafttypes: list[str | None]
+    aircraft_types: list[str | None]
     lats: list[float]
     lons: list[float]
     alts: list[int | None]
