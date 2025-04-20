@@ -74,7 +74,7 @@ class Trajectory(Message):
             return cls(
                 model=models.Trajectory(
                     source=source,
-                    id=source_id,
+                    source_id=source_id,
                     transponder_id=df.transponder_id[0] or '',
                     callsign=df.callsign[0] or '',
                     aircraft_type = df.aircraft_type[0] or '',

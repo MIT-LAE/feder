@@ -31,10 +31,16 @@ def test_liveness_response_encoding(r):
     Trajectory,
     model=st.builds(
         models.Trajectory,
-        id=st.text(min_size=10, max_size=255),
+        source_id=st.text(
+            min_size=10, max_size=255, alphabet=st.characters(codec='ascii')
+        ),
         source=st.sampled_from(models.DataSource),
-        transponder_id=st.text(min_size=6, max_size=6, alphabet='0123456789ABCDEF'),
-        callsign=st.text(min_size=4, max_size=7, alphabet=string.ascii_uppercase + string.digits),
+        transponder_id=st.text(
+            min_size=6, max_size=6, alphabet='0123456789ABCDEF'
+        ),
+        callsign=st.text(
+            min_size=4, max_size=7, alphabet=string.ascii_uppercase + string.digits
+        ),
         aircraft_type=st.sampled_from([None, 'A300', 'B737']),
         points=st.lists(point_strategy, min_size=1, max_size=100))))
 @settings(max_examples=1000)

@@ -1,6 +1,8 @@
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from operator import attrgetter
 from typing import Self
 
 from .utils import (
@@ -71,7 +73,7 @@ class Point:
 
 @dataclass
 class Trajectory:
-    id: str
+    source_id: str
     source: DataSource
     transponder_id: str
     callsign: str
@@ -82,7 +84,7 @@ class Trajectory:
         if packer is None:
             packer = Packer()
         packer('>B', self.source.value)
-        packer.str(self.id)
+        packer.str(self.source_id)
         packer.str(self.transponder_id)
         packer.str(self.callsign)
         packer.str(self.aircraft_type)
@@ -100,9 +102,42 @@ class Trajectory:
             unpacker = Unpacker(data)
         return cls(
             source=DataSource(unpacker('>B')),
-            id=unpacker.str(),
+            source_id=unpacker.str(),
             transponder_id=unpacker.str(),
             callsign=unpacker.str(),
             aircraft_type=unpacker.str(),
             points=Point.unpack(data=None, unpacker=unpacker)
         )
+
+    def merge(self, *others: Self | None) -> Self:
+        points = {}
+        for o in others:
+            if o is None:
+                continue
+            for p in o.points:
+                points[p.time] = p
+        for p in self.points:
+            points[p.time] = p
+        weights = [len(self.points)] + [len(o.points) if o is not None else 0 for o in others]
+        return Trajectory(
+            source=self.source,
+            source_id=self.source_id,
+            transponder_id = _majority(weights, 'transponder_id', self, *others),
+            callsign = _majority(weights, 'callsign', self, *others),
+            aircraft_type = _majority(weights, 'aircraft_type', self, *others),
+            points = sorted(points.values(), key=attrgetter('time'))
+        )
+
+
+def _majority(
+        weights: list[int],
+        attr: str, *trajs:
+        list[Trajectory | None]
+) -> str | None:
+    values = [getattr(t, attr) if t is not None else None for t in trajs]
+    counts = Counter()
+    for w, v in zip(weights, values):
+        if v is None:
+            continue
+        counts[v] += w
+    return counts.most_common(1)[0][0] if len(counts) > 0 else None

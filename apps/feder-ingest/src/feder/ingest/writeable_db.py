@@ -17,6 +17,9 @@ class WritableDB(DB):
         if not os.path.exists(self._db_file()):
             self._create_db()
 
+    def commit(self) -> None:
+        self.conn.commit()
+
     def _create_db(self) -> None:
         logger.info('creating database file %s', self._db_file())
 
@@ -45,16 +48,22 @@ class WritableDB(DB):
             points BLOB NOT NULL /* Packed point data. */
           )""")
 
-    def add_trajectory(self, traj: Trajectory) -> int:
-        cur = self.conn.cursor()
+    def add_trajectory(
+            self,
+            traj: Trajectory,
+            cursor: sqlite3.Cursor | None = None
+    ) -> int:
+        commit = cursor is not None
+        cur = self.cursor() if cursor is None else cursor
 
         cur.execute(
             """INSERT INTO trajectories
             (source, source_id, transponder_id, callsign,
              aircraft_type, points)
             VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
-            (traj.source.value, traj.id, traj.transponder_id, traj.callsign,
-             traj.aircraft_type, bz2.compress(Point.pack(traj.points)))
+            (traj.source.value, traj.source_id, traj.transponder_id,
+             traj.callsign, traj.aircraft_type,
+             bz2.compress(Point.pack(traj.points)))
         )
         id = cur.fetchone()[0]
 
@@ -73,8 +82,28 @@ class WritableDB(DB):
              min_lat, max_lat, min_lon, max_lon, min_alt, max_alt)
         )
 
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return id
+
+    def delete_trajectory(
+            self,
+            traj: Trajectory,
+            cursor: sqlite3.Cursor | None = None
+    ) -> None:
+        commit = cursor is not None
+        cur = self.cursor() if cursor is None else cursor
+
+        cur.execute(
+            """DELETE FROM trajectories
+                WHERE source = ? AND source_id = ?
+                RETURNING id""",
+            (traj.source.value, traj.source_id)
+        )
+        idx_id = cur.fetchone()[0]
+        cur.execute('DELETE FROM trajectory_index WHERE id = ?', (idx_id,))
+        if commit:
+            self.conn.commit()
 
 
 def _range(traj: Trajectory, attr: str) -> tuple:

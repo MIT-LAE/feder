@@ -43,6 +43,7 @@ class Processor:
         self._pending_rmq_messages = {}
         self._fix_count = 0
         self._trajectory_count = 0
+        self._unique_trajectories = set()
 
     def run(self):
         # Process messages from command queue.
@@ -185,7 +186,14 @@ class Processor:
 
     def _trajectory(self, source_id: str):
         self._trajectory_count += 1
-        logger.info('TRAJECTORY %s: %s', self._trajectory_count, source_id)
+        self._unique_trajectories.add(source_id)
+        logger.info(
+            'TRAJECTORY %s (%s): %s',
+            self._trajectory_count,
+            len(self._unique_trajectories),
+            source_id
+        )
+
         # Process a single complete trajectory. If this doesn't
         # work, then the position fixes for the trajectory will
         # remain in the database to be reprocessed in the next
