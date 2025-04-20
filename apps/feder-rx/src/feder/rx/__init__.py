@@ -9,7 +9,7 @@ import click
 from feder.server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE,
-    TimerThread, LivenessChecker
+    Message, TimerThread, LivenessChecker
 )
 
 from .commands import (
@@ -34,7 +34,7 @@ SOURCES = [
     OpenSkyStateVectorSource
 ]
 
-SOURCES_BY_NAME = {str(s.SOURCE): s for s in SOURCES}
+SOURCES_BY_NAME = {s.name(): s for s in SOURCES}
 
 
 class CompletionTimerThread(TimerThread):
@@ -63,7 +63,7 @@ class CompletionTimerThread(TimerThread):
 )
 @click.argument(
     'source',
-    type=click.Choice([str(s.SOURCE) for s in SOURCES]),
+    type=click.Choice([s.name() for s in SOURCES]),
     required=True
 )
 @click.argument('args', nargs=-1)
@@ -129,6 +129,7 @@ def run(
             name=name,
             parameters=rmq_parameters(cfg),
             out_queue=queue,
+            message_class=Message,
             exchanges=[RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE],
             wrapper_class=RMQCommand,
             rpc_client=True,
@@ -140,7 +141,9 @@ def run(
         data_source = SOURCES_BY_NAME[source](cfg, queue, *args)
 
         # Set up ingester check and completion timer threads.
-        completion_timer_thread = CompletionTimerThread(cfg, queue, source)
+        completion_timer_thread = CompletionTimerThread(
+            cfg, queue, data_source.SOURCE
+        )
 
         # Set up ingester liveness checking.
         ingester_liveness = LivenessChecker(
@@ -175,7 +178,9 @@ def run(
             data_source.start()
 
             # Process messages from queue.
-            processor = Processor(cfg, source, historical, db, queue, rmq)
+            processor = Processor(
+                cfg, data_source.SOURCE, historical, db, queue, rmq
+            )
             processor.run()
     except Exception as e:
         logger.exception('fatal exception: %s', e)

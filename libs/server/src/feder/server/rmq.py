@@ -285,7 +285,8 @@ class RMQ(Thread):
             raise ValueError('bad message type')
         try:
             packed_message = message.pack()
-        except Exception:
+        except Exception as exc:
+            print(exc)
             raise ValueError('message type does not support packing')
 
         # Message number used for publish confirmation: returned to caller for

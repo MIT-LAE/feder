@@ -2,9 +2,9 @@ from datetime import datetime
 import logging
 from queue import PriorityQueue
 
-from feder.server import Config, RMQ, DataSource
+from feder.common import DataSource
+from feder.server import Config, RMQ, Trajectory
 import feder.server.rmq as rmq
-from feder.server.messages import Trajectory
 
 from .commands import (
     SourcePositionCommand, BatchSourcePositionCommand,
@@ -42,6 +42,7 @@ class Processor:
         self._trajectory_command_count = 0
         self._pending_rmq_messages = {}
         self._fix_count = 0
+        self._trajectory_count = 0
 
     def run(self):
         # Process messages from command queue.
@@ -183,7 +184,8 @@ class Processor:
             self.horizon_reference += self.completion_delay
 
     def _trajectory(self, source_id: str):
-        logger.info('TRAJECTORY: %s', source_id)
+        self._trajectory_count += 1
+        logger.info('TRAJECTORY %s: %s', self._trajectory_count, source_id)
         # Process a single complete trajectory. If this doesn't
         # work, then the position fixes for the trajectory will
         # remain in the database to be reprocessed in the next

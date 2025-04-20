@@ -1,20 +1,20 @@
 from datetime import datetime, timedelta
 from io import BytesIO
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from queue import PriorityQueue
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 import requests
 
-from feder.server import DataSource
+from feder.common import DataSource
+from feder.server import Config
+
 from . import DateSource
 from ..commands import SourceErrorCommand, SourcePositionCommand, StopCommand
 from ..utils import round_time
 
-if TYPE_CHECKING:
-    from queue import PriorityQueue
-    from feder.server import Config
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class ContrailsAPISource(DateSource):
     DATE_RESOLUTION = 'h'
     DATE_INTERVAL = timedelta(hours=1)
 
-    def __init__(self, config: 'Config', queue: 'PriorityQueue', *args: str):
+    def __init__(self, config: Config, queue: PriorityQueue, *args: str):
         super().__init__(config, queue, *args)
         self.api_key = config.credentials(self.SOURCE)['api_key']
 

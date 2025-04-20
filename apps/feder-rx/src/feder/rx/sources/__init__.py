@@ -7,12 +7,10 @@ from queue import PriorityQueue
 import sys
 from threading import Thread, Event
 import time
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from feder.server import Config
+from feder.common import DataSource
+from feder.server import Config
 
-from feder.server import DataSource
 from ..utils import round_time
 from ..commands import SourceDoneCommand, FileCompleteCommand
 
@@ -21,10 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 class Source(Thread):
-    SOURCE = None
-    NAME = None
+    SOURCE: DataSource | None = None
+    NAME: str | None = None
 
-    def __init__(self, config: 'Config', queue: PriorityQueue, *args: str):
+    def __init__(self, config: Config, queue: PriorityQueue, *args: str):
         super().__init__()
         self.config = config
         self.queue = queue
@@ -34,11 +32,11 @@ class Source(Thread):
         self.wait_finished = Event()
         self.stopped = False
 
-    @property
-    def name(self):
-        if self.NAME is not None:
-            return self.NAME
-        return str(self.SOURCE)
+    @classmethod
+    def name(cls):
+        if cls.NAME is not None:
+            return cls.NAME
+        return str(cls.SOURCE)
 
     def stop(self):
         self.stopped = True

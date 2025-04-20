@@ -1,5 +1,7 @@
-from feder.server import DataSource
+from feder.common import DataSource
+
+from . import Source
 
 
-class FlightAwareSource:
+class FlightAwareSource(Source):
     SOURCE = DataSource.FLIGHTAWARE

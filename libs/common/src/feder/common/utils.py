@@ -32,10 +32,11 @@ class Packer:
     def str(self, s: str | None):
         if s is None:
             s = ''
-        if len(s) > 255:
+        encoded = s.encode('utf-8')
+        if len(encoded) > 255:
             raise ValueError('short string too long for packing in Message')
-        self('>B', len(s))
-        self._buf.write(s.encode('utf-8'))
+        self('>B', len(encoded))
+        self._buf.write(encoded)
 
 
 class Unpacker:

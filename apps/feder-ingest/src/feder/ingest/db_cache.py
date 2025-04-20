@@ -2,7 +2,8 @@ from datetime import datetime, date
 import logging
 import os
 
-from feder.server.trajectory_pb2 import Trajectory
+from feder.common import Trajectory
+
 from .writeable_db import WritableDB
 from .utils import LastUpdatedOrderedDict
 
@@ -45,5 +46,5 @@ class DBCache:
         self._connections.clear()
 
     def add_trajectory(self, traj: Trajectory) -> int:
-        db = self.connect(traj.points.time[0])
+        db = self.connect(traj.points[0].time)
         return db.add_trajectory(traj)

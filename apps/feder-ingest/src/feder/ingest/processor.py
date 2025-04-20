@@ -2,8 +2,8 @@ import logging
 from queue import Queue
 from typing import cast
 
+from feder.common import Trajectory
 from feder.server import Config, RMQ, LivenessChecker
-from feder.server.trajectory_pb2 import Trajectory
 import feder.server.rmq as rmq
 
 from .commands import StopCommand, RMQCommand
@@ -40,8 +40,8 @@ class Processor:
                     match cmd.message:
                         case rmq.DataMessage() as msg:
                             trajectory = cast(Trajectory, msg.message)
-                            logger.info('TRAJECTORY message: %s', trajectory.callsign)
-                            self.db.add_trajectory(trajectory)
+                            logger.info('TRAJECTORY message: %s', trajectory.model.callsign)
+                            self.db.add_trajectory(trajectory.model)
                         case rmq.RPCMessage() as msg:
                             match msg.endpoint:
                                 case 'liveness:ingester':

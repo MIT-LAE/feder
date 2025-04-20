@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from feder.server.config import Config
+from feder.server import Config
 from feder.rx.db import DB
 
 

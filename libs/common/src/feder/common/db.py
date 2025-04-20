@@ -5,7 +5,7 @@ import os
 import sqlite3
 from typing import Generator
 
-from .models import Point, Trajectory
+from .models import DataSource, Point, Trajectory
 
 
 class QueryType(Enum):
@@ -155,7 +155,8 @@ class DB:
                 points.alt_gnss, points.on_ground
             ))
             traj = Trajectory(
-                source=traj_rec[0], id=traj_rec[1], transponder_id=traj_rec[2],
+                source=DataSource(traj_rec[0]), id=traj_rec[1],
+                transponder_id=traj_rec[2],
                 callsign=traj_rec[3], aircraft_type=traj_rec[4], points=pts
             )
             yield traj

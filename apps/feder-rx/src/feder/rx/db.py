@@ -6,7 +6,7 @@ import sqlite3
 
 import pandas as pd
 
-from feder.server.config import Config
+from feder.server import Config
 
 
 logger = logging.getLogger(__name__)

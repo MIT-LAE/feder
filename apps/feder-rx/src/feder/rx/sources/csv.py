@@ -2,12 +2,10 @@ import csv
 from datetime import datetime
 import logging
 from queue import PriorityQueue
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from feder.server import Config
+from feder.server import Config
 
-from feder.server import DataSource
+from feder.common import DataSource
 from ..commands import BatchSourcePositionCommand
 from . import FileSource
 
@@ -28,7 +26,7 @@ class ColIndex:
         self.hexid_col = row.index('hexid')
         self.clock_col = row.index('clock')
         self.ident_col = row.index('ident')
-        self.aircraft_type_col = row.index('aircraft_type')
+        self.aircraft_type_col = row.index('aircrafttype')
         self.lat_col = row.index('lat')
         self.lon_col = row.index('lon')
         self.alt_col = row.index('alt')
@@ -44,7 +42,7 @@ class CSVSource(FileSource):
     NAME = 'csv'
     BATCH_SIZE = 100
 
-    def __init__(self, config: 'Config', queue: PriorityQueue, *args: str):
+    def __init__(self, config: Config, queue: PriorityQueue, *args: str):
         super().__init__(config, queue, *args)
         self._clear()
 

@@ -1,5 +1,4 @@
 from threading import Thread, Event
-from typing import cast
 
 from feder.server.rmq import RPCMessage
 

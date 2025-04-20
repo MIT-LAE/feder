@@ -59,12 +59,14 @@ class Trajectory(Message):
     @classmethod
     def _unpack(cls, unpacker: Unpacker) -> Self:
         return cls(
-            model=models.Trajectory.unpack(unpacker=unpacker)
+            model=models.Trajectory.unpack(
+                data=None, unpacker=unpacker
+            )
         )
 
     @classmethod
     def build(
-            cls, source: str, source_id: str, df: pd.DataFrame
+            cls, source: models.DataSource, source_id: str, df: pd.DataFrame
     ) -> Self:
         try:
             _single_value_column_check(df, 'transponder_id')
@@ -79,7 +81,7 @@ class Trajectory(Message):
                     aircraft_type = df.aircraft_type[0] or '',
                     points=[
                         models.Point(
-                            time=t.time, lon=t.lon, lat=t.lat,
+                            time=datetime.fromtimestamp(t.time), lon=t.lon, lat=t.lat,
                             alt=_substitute_none(t.alt),
                             alt_gnss=_substitute_none(t.alt_gnss),
                             heading=_substitute_none(t.heading),
@@ -89,6 +91,7 @@ class Trajectory(Message):
                 )
             )
         except Exception as e:
+            # TODO: Fix this
             print('OOPS')
             print(e)
             print(df)
@@ -111,9 +114,7 @@ class LivenessQuery(Message):
 
     @classmethod
     def _unpack(cls, unpacker: Unpacker) -> Self:
-        return cls(
-            source=unpacker.str()
-        )
+        return cls(source=unpacker.str())
 
 
 @dataclass

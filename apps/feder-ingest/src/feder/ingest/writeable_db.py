@@ -1,10 +1,10 @@
 from datetime import datetime, date
 import logging
+from operator import attrgetter
 import os
 import sqlite3
 
-from feder.common import DB
-from feder.server.trajectory_pb2 import Trajectory
+from feder.common import DB, Trajectory, Point, MISSING_VALUE
 
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ class WritableDB(DB):
         cur.execute("""
           CREATE TABLE IF NOT EXISTS trajectories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source TEXT NOT NULL,
+            source INTEGER NOT NULL,
             source_id TEXT NOT NULL,
             transponder_id TEXT NOT NULL,
             callsign TEXT NOT NULL,
@@ -52,8 +52,8 @@ class WritableDB(DB):
             (source, source_id, transponder_id, callsign,
              aircraft_type, points)
             VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
-            (traj.source, traj.id, traj.transponder_id, traj.callsign,
-             traj.aircraft_type, traj.points.SerializeToString())
+            (traj.source.value, traj.id, traj.transponder_id, traj.callsign,
+             traj.aircraft_type, Point.pack(traj.points))
         )
         id = cur.fetchone()[0]
 
@@ -77,7 +77,10 @@ class WritableDB(DB):
 
 
 def _range(traj: Trajectory, attr: str) -> tuple:
-    return min(getattr(traj.points, attr)), max(getattr(traj.points, attr))
+    return (
+        getattr(min(traj.points, key=attrgetter(attr)), attr),
+        getattr(max(traj.points, key=attrgetter(attr)), attr)
+    )
 
 
 def _time_range(traj: Trajectory) -> tuple:
@@ -93,4 +96,8 @@ def _lon_range(traj: Trajectory) -> tuple:
 
 
 def _alt_range(traj: Trajectory) -> tuple:
-    return _range(traj, 'alt')
+    alts = [p.alt for p in traj.points]
+    if all(a is None for a in alts):
+        return (MISSING_VALUE, MISSING_VALUE)
+    ok_alts = [a for a in alts if a is not None]
+    return min(ok_alts), max(ok_alts)

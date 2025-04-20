@@ -4,8 +4,8 @@ from queue import PriorityQueue
 from threading import Thread
 from unittest.mock import Mock
 
-from feder.server import DataSource
-from feder.server.rmq import Message
+from feder.common import DataSource
+from feder.server import Message
 from feder.rx import Processor
 from feder.rx.commands import SourceDoneCommand, SourcePositionCommand
 

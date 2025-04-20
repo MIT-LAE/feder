@@ -3,8 +3,8 @@ import logging
 from queue import Queue
 from threading import Thread, Event
 
+from feder.common import DataSource
 from .config import Config
-from .constants import DataSource
 from .rmq import RMQ, RPCEndpoint, RPCMessage
 from .messages import LivenessQuery, LivenessResponse, Liveness
 
@@ -35,11 +35,14 @@ class LivenessChecker(Thread):
             query: RPCMessage,
             status: Liveness = Liveness.OK
     ):
-        response = LivenessResponse()
-        response.source = rmq.name
-        response.timestamp = int(datetime.now().timestamp())
-        response.status = status
-        rmq.rpc_reply(query, response)
+        rmq.rpc_reply(
+            query,
+            LivenessResponse(
+                source=rmq.name,
+                time=datetime.now(),
+                status=status
+            )
+        )
 
     def __init__(
             self,

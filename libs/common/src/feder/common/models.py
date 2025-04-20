@@ -1,11 +1,21 @@
 from dataclasses import dataclass
 from datetime import datetime
-import struct
+from enum import Enum
 from typing import Self
 
 from .utils import (
     Packer, Unpacker, encode_opt_float, decode_opt_float, milli
 )
+
+
+class DataSource(Enum):
+    FLIGHTAWARE = 1
+    CONTRAILS_API = 2
+    OPENSKY = 3
+    OPENSKY_STATE_VECTORS = 4
+
+    def __str__(self):
+        return self.name.lower().replace('_', '-')
 
 
 @dataclass
@@ -15,7 +25,7 @@ class Point:
     time: datetime
     lon: float
     lat: float
-    alt: float
+    alt: float | None
     alt_gnss: float | None
     heading: float | None
     on_ground: bool
@@ -28,7 +38,8 @@ class Point:
             packer(
                 cls.POINT_FORMAT,
                 int(p[1].time.timestamp()),
-                p[1].lon, p[1].lat, p[1].alt,
+                p[1].lon, p[1].lat,
+                encode_opt_float(p[1].alt),
                 encode_opt_float(p[1].alt_gnss),
                 encode_opt_float(p[1].heading),
                 p[1].on_ground
@@ -61,7 +72,7 @@ class Point:
 @dataclass
 class Trajectory:
     id: str
-    source: str
+    source: DataSource
     transponder_id: str
     callsign: str
     aircraft_type: str | None
@@ -70,7 +81,7 @@ class Trajectory:
     def pack(self, packer: Packer | None = None) -> bytes:
         if packer is None:
             packer = Packer()
-        packer.str(self.source)
+        packer('>B', self.source.value)
         packer.str(self.id)
         packer.str(self.transponder_id)
         packer.str(self.callsign)
@@ -88,9 +99,9 @@ class Trajectory:
         if unpacker is None:
             unpacker = Unpacker(data)
         return cls(
-            source=unpacker.str(),
+            source=DataSource(unpacker('>B')),
             id=unpacker.str(),
-            transpondeR_id=unpacker.str(),
+            transponder_id=unpacker.str(),
             callsign=unpacker.str(),
             aircraft_type=unpacker.str(),
             points=Point.unpack(data=None, unpacker=unpacker)

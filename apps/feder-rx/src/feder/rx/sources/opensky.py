@@ -1,9 +1,11 @@
-from feder.server import DataSource
+from feder.common import DataSource
+
+from . import Source
 
 
-class OpenSkySource:
+class OpenSkySource(Source):
     SOURCE = DataSource.OPENSKY
 
 
-class OpenSkyStateVectorSource:
+class OpenSkyStateVectorSource(Source):
     SOURCE = DataSource.OPENSKY_STATE_VECTORS
