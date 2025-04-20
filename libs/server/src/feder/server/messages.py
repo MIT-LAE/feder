@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import bz2
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,20 +23,18 @@ class Message(ABC):
 
     @staticmethod
     def unpack(data: bytes) -> Self:
-        unpacker = Unpacker(data)
-        tag = chr(unpacker('>B'))
+        tag = chr(data[0])
         message_class = MESSAGE_TAG_DICT.get(tag)
         if message_class is None:
             raise ValueError(
                 f'unknown message tag "{tag}" for message'
             )
-        return message_class._unpack(unpacker)
+        return message_class._unpack(Unpacker(bz2.decompress(data[1:])))
 
     def pack(self) -> bytes:
         packer = Packer()
-        packer('>B', ord(self.MESSAGE_TAG))
         self._pack(packer)
-        return packer.data()
+        return bytes([ord(self.MESSAGE_TAG)]) + bz2.compress(packer.data())
 
     @abstractmethod
     def _pack(self, packer: Packer):

@@ -1,3 +1,4 @@
+import bz2
 from datetime import datetime, date
 import logging
 from operator import attrgetter
@@ -41,7 +42,7 @@ class WritableDB(DB):
             transponder_id TEXT NOT NULL,
             callsign TEXT NOT NULL,
             aircraft_type TEXT,
-            points BLOB NOT NULL /* Protocol Buffers Points message (points.proto) */
+            points BLOB NOT NULL /* Packed point data. */
           )""")
 
     def add_trajectory(self, traj: Trajectory) -> int:
@@ -53,7 +54,7 @@ class WritableDB(DB):
              aircraft_type, points)
             VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
             (traj.source.value, traj.id, traj.transponder_id, traj.callsign,
-             traj.aircraft_type, Point.pack(traj.points))
+             traj.aircraft_type, bz2.compress(Point.pack(traj.points)))
         )
         id = cur.fetchone()[0]
 
@@ -68,7 +69,7 @@ class WritableDB(DB):
                   min_longitude, max_longitude,
                   min_altitude, max_altitude)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (id, min_time, max_time,
+            (id, min_time.timestamp(), max_time.timestamp(),
              min_lat, max_lat, min_lon, max_lon, min_alt, max_alt)
         )
 

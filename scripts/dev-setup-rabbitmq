@@ -5,3 +5,4 @@ id=$(docker ps --filter name=rabbitmq --format '{{.ID}}' | head -n 1)
 docker exec $id rabbitmqctl add_vhost flight-data
 docker exec $id rabbitmqctl add_user feder feder-test
 docker exec $id rabbitmqctl set_permissions --vhost flight-data feder '.*' '.*' '.*'
+docker exec $id rabbitmqctl set_user_tags --vhost flight-data feder administrator

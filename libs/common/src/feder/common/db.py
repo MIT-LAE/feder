@@ -1,3 +1,4 @@
+import bz2
 from dataclasses import dataclass
 from datetime import datetime, date
 from enum import Enum, auto
@@ -148,15 +149,10 @@ class DB:
             ids
         )
         for traj_rec in cur:
-            points = Point.unpack(traj_rec[5])
-            pts = list(map(
-                Point,
-                points.time, points.lat, points.lon, points.alt,
-                points.alt_gnss, points.on_ground
-            ))
             traj = Trajectory(
                 source=DataSource(traj_rec[0]), id=traj_rec[1],
                 transponder_id=traj_rec[2],
-                callsign=traj_rec[3], aircraft_type=traj_rec[4], points=pts
+                callsign=traj_rec[3], aircraft_type=traj_rec[4],
+                points=Point.unpack(bz2.decompress(traj_rec[5]))
             )
             yield traj
