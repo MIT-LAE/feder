@@ -70,10 +70,20 @@ class LivenessChecker(Thread):
         self._waiting = None
         self._client_waiting = False
         self._live = False
+        self._last_reponse_received = None
+        self._last_reponse_sent = None
 
     @property
     def live(self):
         return self._live
+
+    @property
+    def last_response_received(self):
+        return self._last_response_received
+
+    @property
+    def last_response_sent(self):
+        return self._last_response_sent
 
     def _set_status(self):
         self.out_queue.put(self.status_command(self._live))
@@ -90,9 +100,9 @@ class LivenessChecker(Thread):
             self._waiting.set()
 
     def _callback(self, correlation_id: str, message: LivenessResponse):
-        logger.info('liveness response from %s', self.endpoint)
-        # TODO: Save last response timestamp and status? More intelligent
-        # processing here?
+        logger.debug('liveness response from %s', self.endpoint)
+        self._last_response_received = datetime.now()
+        self._last_response_sent = message.time
         self._process_callback(correlation_id, True)
 
     def _error_callback(self, correlation_id: str, reason: str):
@@ -126,12 +136,11 @@ class LivenessChecker(Thread):
                     else self.down_check_interval
                 )
 
-    # TODO: Add timeout here?
-    def wait(self):
+    def wait(self, timeout: float | None = None):
         try:
             self._client_waiting = True
             while not self._stopped and not self._live:
                 if self._waiting is not None:
-                    self._waiting.wait()
+                    self._waiting.wait(timeout)
         finally:
             self._client_waiting = False

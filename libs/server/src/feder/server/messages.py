@@ -67,33 +67,31 @@ class Trajectory(Message):
     def build(
             cls, source: models.DataSource, source_id: str, df: pd.DataFrame
     ) -> Self:
-        try:
-            _single_value_column_check(df, 'transponder_id')
-            _single_value_column_check(df, 'callsign')
-            _single_value_column_check(df, 'aircraft_type')
-            return cls(
-                model=models.Trajectory(
-                    source=source,
-                    source_id=source_id,
-                    transponder_id=df.transponder_id[0] or '',
-                    callsign=df.callsign[0] or '',
-                    aircraft_type = df.aircraft_type[0] or '',
-                    points=[
-                        models.Point(
-                            time=datetime.fromtimestamp(t.time), lon=t.lon, lat=t.lat,
-                            alt=_substitute_none(t.alt),
-                            alt_gnss=_substitute_none(t.alt_gnss),
-                            heading=_substitute_none(t.heading),
-                            on_ground=t.on_ground
-                        ) for t in df.itertuples()
-                    ]
-                )
+        _single_value_column_check(df, 'transponder_id')
+        _single_value_column_check(df, 'callsign')
+        _single_value_column_check(df, 'orig')
+        _single_value_column_check(df, 'dest')
+        _single_value_column_check(df, 'aircraft_type')
+        return cls(
+            model=models.Trajectory(
+                source=source,
+                source_id=source_id,
+                transponder_id=df.transponder_id[0] or '',
+                orig=df.orig[0] or '',
+                dest=df.dest[0] or '',
+                callsign=df.callsign[0] or '',
+                aircraft_type = df.aircraft_type[0] or '',
+                points=[
+                    models.Point(
+                        time=datetime.fromtimestamp(t.time), lon=t.lon, lat=t.lat,
+                        alt=_substitute_none(t.alt),
+                        alt_gnss=_substitute_none(t.alt_gnss),
+                        heading=_substitute_none(t.heading),
+                        on_ground=t.on_ground
+                    ) for t in df.itertuples()
+                ]
             )
-        except Exception as e:
-            # TODO: Fix this
-            print('OOPS')
-            print(e)
-            print(df)
+        )
 
 
 class Liveness(Enum):

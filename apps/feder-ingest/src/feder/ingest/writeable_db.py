@@ -43,6 +43,8 @@ class WritableDB(DB):
             source INTEGER NOT NULL,
             source_id TEXT NOT NULL,
             transponder_id TEXT NOT NULL,
+            orig TEXT,
+            dest TEXT,
             callsign TEXT NOT NULL,
             aircraft_type TEXT,
             points BLOB NOT NULL /* Packed point data. */
@@ -58,11 +60,11 @@ class WritableDB(DB):
 
         cur.execute(
             """INSERT INTO trajectories
-            (source, source_id, transponder_id, callsign,
+            (source, source_id, transponder_id, orig, dest, callsign,
              aircraft_type, points)
-            VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""",
             (traj.source.value, traj.source_id, traj.transponder_id,
-             traj.callsign, traj.aircraft_type,
+             traj.orig, traj.dest, traj.callsign, traj.aircraft_type,
              bz2.compress(Point.pack(traj.points)))
         )
         id = cur.fetchone()[0]

@@ -89,7 +89,7 @@ def tminus(seconds):
 
 TEST_VALUES = [
     (
-        'source-0001', 'ABCDEF', 'DAL1234',
+        'source-0001', 'ABCDEF', None, 'DUMA', 'DAL1234',
         [
             (tminus(125), 40.1, -94.5, 35000),
             (tminus( 60), 40.2, -94.4, 35000),
@@ -97,7 +97,7 @@ TEST_VALUES = [
         ]
     ),
     (
-        'source-0002', 'BCDEF0', 'UPS231',
+        'source-0002', 'BCDEF0', 'DUMA', 'DUMZ', 'UPS231',
         [
             (tminus(1050), 40.1, -94.5, 35000),
             (tminus( 990), 40.2, -94.4, 35000),
@@ -105,7 +105,7 @@ TEST_VALUES = [
         ]
     ),
     (
-        'source-0003', 'CDEF01', 'UAL4747',
+        'source-0003', 'CDEF01', 'DUMZ', 'DUMA', 'UAL4747',
         [
             (tminus(920), 40.1, -94.5, 35000),
             (tminus(860), 40.2, -94.4, 35000),
@@ -113,7 +113,7 @@ TEST_VALUES = [
         ]
     ),
     (
-        'source-0004', 'DEF012', 'BA1134',
+        'source-0004', 'DEF012', 'DUMA', None, 'BA1134',
         [
             (tminus(1020), 40.1, -94.5, 35000),
             (tminus( 960), 40.2, -94.4, 35000),
@@ -127,11 +127,12 @@ TEST_VALUES = [
 def db(config):
     db = DB(config, 'test')
 
-    for (source_id, transponder_id, callsign, points) in TEST_VALUES:
+    for (source_id, transponder_id, orig, dest, callsign, points) in TEST_VALUES:
         for (time, lat, lon, alt) in points:
             db.save_position(
                 source_id=source_id, transponder_id=transponder_id,
-                time=time, callsign=callsign, aircraft_type=None,
+                time=time, orig=orig, dest=dest,
+                callsign=callsign, aircraft_type=None,
                 lat=lat, lon=lon, alt=alt, alt_gnss=None, heading=None,
                 on_ground=False
             )

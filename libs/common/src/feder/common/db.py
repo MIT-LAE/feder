@@ -1,6 +1,7 @@
 import bz2
 from datetime import datetime, date
 from enum import Enum, auto
+from itertools import batched
 import os
 import sqlite3
 from typing import Generator
@@ -130,12 +131,15 @@ class DB:
 
         cur = self.cursor()
         cur.execute(id_sql, id_parameters)
+        ids = [t[0] for t in cur.fetchall()]
 
-        yield from self._retrieve(
-            source,
-            'source_id IN ({",".join("?" for i in ids)})',
-            [t[0] for t in cur.fetchall()]
-        )
+        # Batch the IDs to keep the length of SQL queries reasonable.
+        for id_batch in batched(ids, 50):
+            yield from self._retrieve(
+                source,
+                f'id IN ({",".join("?" for i in id_batch)})',
+                list(id_batch)
+            )
 
     def _retrieve(
             self,
@@ -148,7 +152,7 @@ class DB:
             id_parameters = [id_parameters]
 
         # Basic query body.
-        sql = """SELECT source, source_id, transponder_id,
+        sql = """SELECT source, source_id, transponder_id, orig, dest,
                         callsign, aircraft_type, points
                    FROM trajectories WHERE """
 
@@ -165,11 +169,12 @@ class DB:
 
         cur = self.cursor()
         cur.execute(sql, parameters)
+
         for traj_rec in cur:
             traj = Trajectory(
                 source=DataSource(traj_rec[0]), source_id=traj_rec[1],
-                transponder_id=traj_rec[2],
-                callsign=traj_rec[3], aircraft_type=traj_rec[4],
-                points=Point.unpack(bz2.decompress(traj_rec[5]))
+                transponder_id=traj_rec[2], orig=traj_rec[3], dest=traj_rec[4],
+                callsign=traj_rec[5], aircraft_type=traj_rec[6],
+                points=Point.unpack(bz2.decompress(traj_rec[7]))
             )
             yield traj

@@ -3,7 +3,7 @@ import logging
 from queue import PriorityQueue
 
 from feder.common import DataSource
-from feder.server import Config, RMQ, Trajectory
+from feder.server import Config, RMQ, Trajectory, LivenessChecker
 import feder.server.rmq as rmq
 
 from .commands import (
@@ -23,7 +23,8 @@ class Processor:
     def __init__(
             self,
             config: Config, source: DataSource, historical: bool,
-            db: DB, queue: PriorityQueue, rmq: RMQ
+            db: DB, queue: PriorityQueue, rmq: RMQ,
+            liveness_endpoint: str | None
     ):
         self.config = config
         self.source = source
@@ -33,6 +34,7 @@ class Processor:
         self.rmq = rmq
         self.data_lag = self.config.data_lag(self.source)
         self.completion_delay = self.config.completion_delay(self.source)
+        self.liveness_endpoint = liveness_endpoint
         # Used for historical processing.
         self.horizon_reference = None
 
@@ -55,7 +57,7 @@ class Processor:
                     self._trajectory_command_count == 0
             ):
                 logger.info('Starting trajectory completion cycle...')
-                for source_id in self.identify_complete_trajectories():
+                for source_id in self._identify_complete_trajectories():
                     self.queue.put(TrajectoryCommand(source_id))
                     self._trajectory_command_count += 1
                 logger.info(
@@ -69,6 +71,16 @@ class Processor:
                 self._process_one(command)
             except Exception:
                 logger.exception('command processing failed')
+
+            # If we had got a DONE command and were just waiting for
+            # trajectory completion to finish, stop now. This has to be called
+            # in the right place!
+            if (
+                    self._trajectory_command_count == 0 and
+                    self._done_pending and
+                    len(self._pending_rmq_messages) == 0
+            ):
+                self._done = True
 
     def _process_one(self, command):
         match command:
@@ -134,6 +146,15 @@ class Processor:
                             source_id = self._pending_rmq_messages[delivery_tag]
                             del self._pending_rmq_messages[delivery_tag]
 
+                    case rmq.RPCMessage() as msg:
+                        if msg.endpoint == self.liveness_endpoint:
+                            logger.debug('RPC request: liveness check')
+                            LivenessChecker.send_reply(self.rmq, msg)
+                        else:
+                            logger.warning(
+                                'unknown RPC endpoint: %s', msg.endpoint
+                            )
+
                     case _:
                         logger.warning(
                             'unexpected RMQ message "%s"', cmd.message
@@ -144,7 +165,7 @@ class Processor:
             self.horizon_reference = cmd.time
         self.db.save_position(
             cmd.source_id, cmd.transponder_id, cmd.time,
-            cmd.callsign, cmd.aircraft_type,
+            cmd.orig, cmd.dest, cmd.callsign, cmd.aircraft_type,
             cmd.lat, cmd.lon, cmd.alt, cmd.alt_gnss,
             cmd.heading, cmd.on_ground
         )
@@ -159,7 +180,7 @@ class Processor:
             self.horizon_reference = cmd.times[-1]
         self.db.save_positions(
             cmd.source_ids, cmd.transponder_ids, cmd.times,
-            cmd.callsigns, cmd.aircraft_types,
+            cmd.origs, cmd.dests, cmd.callsigns, cmd.aircraft_types,
             cmd.lats, cmd.lons, cmd.alts, cmd.alts_gnss,
             cmd.headings, cmd.on_grounds
         )
@@ -208,22 +229,14 @@ class Processor:
         #
         # The message number from RabbitMQ is saved for publish
         # confirmation processing.
-        message_number = self.complete_trajectory(source_id)
+        message_number = self._complete_trajectory(source_id)
         if message_number is not None:
             self._pending_rmq_messages[message_number] = source_id
 
         # There's one less TRAJECTORY command in the queue.
         self._trajectory_command_count -= 1
 
-        # If we had got a DONE command and were just waiting for
-        # trajectory completion to finish, stop now.
-        if (
-                self._trajectory_command_count == 0 and
-                self._done_pending
-        ):
-            self._done = True
-
-    def identify_complete_trajectories(self) -> list[str]:
+    def _identify_complete_trajectories(self) -> list[str]:
         # For historical processing jobs, we use the time of the last position
         # fix as a reference time for calculating the trajectory completion
         # horizon. For live processing, we use the current time (minus any
@@ -244,7 +257,7 @@ class Processor:
         logger.info('completion horizon: %s', horizon.isoformat())
         return self.db.complete_source_ids(horizon)
 
-    def complete_trajectory(self, source_id: str) -> int | None:
+    def _complete_trajectory(self, source_id: str) -> int | None:
         # Retrieve all position fixes from database as data frame.
         df = self.db.get_trajectory(source_id)
         if df.empty:
@@ -256,12 +269,3 @@ class Processor:
         # Send trajectory payload out over RabbitMQ, returning message number
         # for ACK/NACK processing.
         return self.rmq.send('trajectory', payload)
-
-    # TODO: Do this stuff in response to liveness RPC requests instead.
-    def send_heartbeat(self):
-        # Collect statistics from source and database for heartbeat message.
-
-        # Construct heartbeat payload to send to monitor.
-
-        # Send heartbeat payload out over RabbitMQ.
-        ...

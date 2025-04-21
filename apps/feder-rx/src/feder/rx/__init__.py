@@ -152,7 +152,7 @@ def run(
 
         # Start RabbitMQ handler (waits for connection to RabbitMQ broker and
         # throws an exception if it takes too long to get set up).
-        # TODO: Think about retrying here.
+        # TODO: Think about retrying here. (OR rely on systemd to restart?)
         try:
             rmq.start()
         except RuntimeError as exc:
@@ -179,7 +179,8 @@ def run(
 
             # Process messages from queue.
             processor = Processor(
-                cfg, data_source.SOURCE, historical, db, queue, rmq
+                cfg, data_source.SOURCE, historical, db, queue, rmq,
+                rpc_server[0] if len(rpc_server) > 0 else None
             )
             processor.run()
     except Exception as e:

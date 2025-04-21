@@ -13,6 +13,7 @@ def test_command_ordering():
     source_pos = SourcePositionCommand(
         source_id='DUMMY', transponder_id='DUMMY',
         time=datetime(2025, 4, 1, 12, 0),
+        orig=None, dest='DUMY',
         callsign='DUMMY', aircraft_type=None,
         lat=41.0, lon=-95.0, alt=35000, alt_gnss=None, heading=None,
         on_ground=False

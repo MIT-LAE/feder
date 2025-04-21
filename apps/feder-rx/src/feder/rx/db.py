@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 class Fix:
     transponder_id: str
     time: int
+    orig: str | None
+    dest: str | None
     callsign: str
     aircraft_type: str | None
     lat: float
@@ -62,21 +64,22 @@ class DB:
     def save_position(
             self,
             source_id: str, transponder_id: str, time: datetime,
-            callsign: str, aircraft_type: str | None,
+            orig: str | None, dest: str | None, callsign: str,
+            aircraft_type: str | None,
             lat: float, lon: float, alt: int | None, alt_gnss: int | None,
             heading: float | None, on_ground: bool
     ) -> None:
         sql = """
           INSERT INTO fixes
-            (source_id, transponder_id, time, callsign, aircraft_type,
-             lat, lon, alt, alt_gnss, heading, on_ground)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (source_id, transponder_id, time, orig, dest, callsign,
+             aircraft_type, lat, lon, alt, alt_gnss, heading, on_ground)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         cur = self.conn.cursor()
         cur.execute(
             sql,
             (source_id, transponder_id, int(time.timestamp()),
-             callsign, aircraft_type,
+             orig, dest, callsign, aircraft_type,
             lat, lon, alt, alt_gnss, heading, on_ground)
         )
         self.conn.commit()
@@ -85,6 +88,7 @@ class DB:
             self,
             source_ids: list[str], transponder_ids: list[str],
             times: list[datetime],
+            origs: list[str | None], dests: list[str | None],
             callsigns: list[str], aircraft_types: list[str | None],
             lats: list[float], lons: list[float],
             alts: list[int | None], alts_gnss: list[int | None],
@@ -92,13 +96,13 @@ class DB:
     ) -> None:
         sql = """
           INSERT INTO fixes
-            (source_id, transponder_id, time, callsign, aircraft_type,
-             lat, lon, alt, alt_gnss, heading, on_ground)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (source_id, transponder_id, time, orig, dest, callsign,
+             aircraft_type, lat, lon, alt, alt_gnss, heading, on_ground)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         values = [
             (source_ids[i], transponder_ids[i], int(times[i].timestamp()),
-             callsigns[i], aircraft_types[i],
+             origs[i], dests[i], callsigns[i], aircraft_types[i],
              lats[i], lons[i], alts[i], alts_gnss[i],
              headings[i], on_grounds[i]) for i in range(len(source_ids))]
         cur = self.conn.cursor()
@@ -121,8 +125,8 @@ class DB:
 
     def get_trajectory(self, source_id: str) -> pd.DataFrame:
         sql = """
-           SELECT transponder_id, time, callsign, aircraft_type,
-             lat, lon, alt, alt_gnss, heading, on_ground
+           SELECT transponder_id, time, orig, dest, callsign,
+             aircraft_type, lat, lon, alt, alt_gnss, heading, on_ground
              FROM fixes WHERE source_id = ? ORDER BY time
         """
         cur = self.conn.cursor()
@@ -130,9 +134,10 @@ class DB:
         for row in cur.execute(sql, (source_id, )).fetchall():
             rows.append(Fix(
                 transponder_id=row[0], time=row[1],
-                callsign=row[2], aircraft_type=row[3],
-                lat=row[4], lon=row[5], alt=row[6], alt_gnss=row[7],
-                heading=row[8], on_ground=row[9]
+                orig=row[2], dest=row[3],
+                callsign=row[4], aircraft_type=row[5],
+                lat=row[6], lon=row[7], alt=row[6], alt_gnss=row[8],
+                heading=row[10], on_ground=row[11]
             ))
         return pd.DataFrame(rows).convert_dtypes()
 
@@ -149,6 +154,8 @@ class DB:
         source_id TEXT NOT NULL,
         transponder_id TEXT NOT NULL,
         time INTEGER NOT NULL,
+        orig TEXT,
+        dest TEXT,
         callsign TEXT NOT NULL,
         aircraft_type TEXT,
         lat FLOAT NOT NULL,

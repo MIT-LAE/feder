@@ -76,6 +76,8 @@ class Trajectory:
     source_id: str
     source: DataSource
     transponder_id: str
+    orig: str | None
+    dest: str | None
     callsign: str
     aircraft_type: str | None
     points: list[Point]
@@ -86,6 +88,8 @@ class Trajectory:
         packer('>B', self.source.value)
         packer.str(self.source_id)
         packer.str(self.transponder_id)
+        packer.str(self.orig)
+        packer.str(self.dest)
         packer.str(self.callsign)
         packer.str(self.aircraft_type)
         Point.pack(self.points, packer=packer)
@@ -104,6 +108,8 @@ class Trajectory:
             source=DataSource(unpacker('>B')),
             source_id=unpacker.str(),
             transponder_id=unpacker.str(),
+            orig=unpacker.str(),
+            dest=unpacker.str(),
             callsign=unpacker.str(),
             aircraft_type=unpacker.str(),
             points=Point.unpack(data=None, unpacker=unpacker)
@@ -123,6 +129,8 @@ class Trajectory:
             source=self.source,
             source_id=self.source_id,
             transponder_id = _majority(weights, 'transponder_id', self, *others),
+            orig = _majority(weights, 'orig', self, *others),
+            dest = _majority(weights, 'dest', self, *others),
             callsign = _majority(weights, 'callsign', self, *others),
             aircraft_type = _majority(weights, 'aircraft_type', self, *others),
             points = sorted(points.values(), key=attrgetter('time'))

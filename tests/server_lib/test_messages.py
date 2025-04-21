@@ -8,21 +8,25 @@ from feder.server import (
     Message, Trajectory, Liveness, LivenessQuery, LivenessResponse
 )
 
-from ..conftest import EARLIEST_TIME, LATEST_TIME, point_strategy
+from ..conftest import (
+    EARLIEST_TIME, LATEST_TIME,
+    point_strategy, short_string_strategy, airport_strategy
+)
 
 
-@given(st.builds(
-    LivenessQuery, source=st.text(min_size=1)))
+@given(st.builds(LivenessQuery, source=short_string_strategy))
+@settings(max_examples=1000)
 def test_liveness_query_encoding(q):
     assert q == Message.unpack(q.pack())
 
 
 @given(st.builds(
     LivenessResponse,
-    source=st.text(min_size=1),
+    source=short_string_strategy,
     time=st.integers(min_value=EARLIEST_TIME, max_value=LATEST_TIME).map(datetime.fromtimestamp),
     status=st.sampled_from(Liveness)
 ))
+@settings(max_examples=1000)
 def test_liveness_response_encoding(r):
     assert r == Message.unpack(r.pack())
 
@@ -31,13 +35,13 @@ def test_liveness_response_encoding(r):
     Trajectory,
     model=st.builds(
         models.Trajectory,
-        source_id=st.text(
-            min_size=10, max_size=255, alphabet=st.characters(codec='ascii')
-        ),
+        source_id=short_string_strategy,
         source=st.sampled_from(models.DataSource),
         transponder_id=st.text(
             min_size=6, max_size=6, alphabet='0123456789ABCDEF'
         ),
+        orig=airport_strategy,
+        dest=airport_strategy,
         callsign=st.text(
             min_size=4, max_size=7, alphabet=string.ascii_uppercase + string.digits
         ),

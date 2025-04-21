@@ -26,6 +26,8 @@ class ColIndex:
         self.hexid_col = row.index('hexid')
         self.clock_col = row.index('clock')
         self.ident_col = row.index('ident')
+        self.orig_col = row.index('orig')
+        self.dest_col = row.index('dest')
         self.aircraft_type_col = row.index('aircrafttype')
         self.lat_col = row.index('lat')
         self.lon_col = row.index('lon')
@@ -50,6 +52,8 @@ class CSVSource(FileSource):
         self._source_ids = []
         self._transponder_ids = []
         self._times = []
+        self._origs = []
+        self._dests = []
         self._callsigns = []
         self._aircraft_types = []
         self._lats = []
@@ -81,6 +85,8 @@ class CSVSource(FileSource):
                 self._transponder_ids.append(row[idx.hexid_col])
                 self._times.append(datetime.fromtimestamp(int(row[idx.clock_col])))
                 self._callsigns.append(row[idx.ident_col])
+                self._origs.append(n(row, idx.orig_col, str))
+                self._dests.append(n(row, idx.dest_col, str))
                 self._aircraft_types.append(n(row, idx.aircraft_type_col, str))
                 self._lats.append(float(row[idx.lat_col]))
                 self._lons.append(float(row[idx.lon_col]))
@@ -93,7 +99,8 @@ class CSVSource(FileSource):
                 if self._nrows == self.BATCH_SIZE:
                     yield BatchSourcePositionCommand(
                         self._source_ids, self._transponder_ids, self._times,
-                        self._callsigns, self._aircraft_types,
+                        self._origs, self._dests, self._callsigns,
+                        self._aircraft_types,
                         self._lats, self._lons, self._alts, self._alts_gnss,
                         self._headings, self._on_grounds
                     )
@@ -102,7 +109,8 @@ class CSVSource(FileSource):
             if self._nrows > 0:
                 yield BatchSourcePositionCommand(
                     self._source_ids, self._transponder_ids, self._times,
-                    self._callsigns, self._aircraft_types,
+                    self._origs, self._dests, self._callsigns,
+                    self._aircraft_types,
                     self._lats, self._lons, self._alts, self._alts_gnss,
                     self._headings, self._on_grounds
                 )

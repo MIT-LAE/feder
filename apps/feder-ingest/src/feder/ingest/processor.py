@@ -45,7 +45,7 @@ class Processor:
                         case rmq.RPCMessage() as msg:
                             match msg.endpoint:
                                 case 'liveness:ingester':
-                                    logger.info('RPC request: liveness check')
+                                    logger.debug('RPC request: liveness check')
                                     LivenessChecker.send_reply(self.rmq, msg)
                                 case _:
                                     logger.warning(

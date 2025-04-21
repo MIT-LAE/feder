@@ -704,13 +704,12 @@ class RMQ(Thread):
         )
         self._setup(step_idx)
 
-    # TODO: Delete this queue on exit.
-
     def _declare_rpc_client_reply_queue(self, step_idx: int):
         # An empty queue name here causes the broker to autogenerate a name,
         # and "exclusive" means the queue goes away when the connection goes
         # away (the Pika docs say "Only allow access by the current
-        # connection").
+        # connection"). This means that we don't need to delete the queue on
+        # exit: RabbitMQ will do that for us.
         logger.info('Declaring RabbitMQ RPC client reply queue...')
         assert self._rpc_channel is not None
         self._rpc_channel.queue_declare(
