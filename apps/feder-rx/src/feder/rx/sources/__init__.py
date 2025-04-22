@@ -3,16 +3,21 @@ from datetime import datetime, timedelta
 import glob
 import itertools
 import logging
-from queue import PriorityQueue
+from queue import Queue
 import sys
 from threading import Thread, Event
 import time
+from typing import Generator
 
 from feder.common import DataSource
 from feder.server import Config
 
 from ..utils import round_time
-from ..commands import SourceDoneCommand, FileCompleteCommand
+from ..commands import (
+    Command,
+    SourcePositionCommand, BatchSourcePositionCommand,
+    SourceDoneCommand
+)
 
 
 logger = logging.getLogger(__name__)
@@ -21,8 +26,9 @@ logger = logging.getLogger(__name__)
 class Source(Thread):
     SOURCE: DataSource | None = None
     NAME: str | None = None
+    BATCH_SIZE: int = 1
 
-    def __init__(self, config: Config, queue: PriorityQueue, *args: str):
+    def __init__(self, config: Config, queue: Queue, *args: str):
         super().__init__()
         self.config = config
         self.queue = queue
@@ -57,12 +63,12 @@ class Source(Thread):
 
 class FileSource(Source):
     @abstractmethod
-    def process_file(self, filename: str):
+    def process_file(self, filename: str) -> Generator[Command, None, None]:
         ...
 
     def run(self):
         expanded_csv_files = list(itertools.chain.from_iterable(
-            (glob.glob(f) if '*' in f else [f])
+            (sorted(glob.glob(f)) if '*' in f else [f])
             for f in list(self.args)
         ))
 
@@ -71,23 +77,29 @@ class FileSource(Source):
             return
 
         self.csv_files = expanded_csv_files
+
+        fix_count = 0
+        latest_time = datetime(1, 1, 1)
         for f in self.csv_files:
             logger.info('Processing %s', f)
-            for fix_count, fix in enumerate(self.process_file(f)):
-                self.queue.put(fix)
-                if fix_count % 1000 == 0:
-                    while self.queue.qsize() > 100:
-                        # Wait for queue to drain...
-                        time.sleep(1)
-            self.queue.put(FileCompleteCommand())
+            for cmd in self.process_file(f):
+                match cmd:
+                    case SourcePositionCommand():
+                        fix_count += 1
+                        latest_time = max(latest_time, cmd.time)
+                    case BatchSourcePositionCommand():
+                        fix_count += len(cmd.source_ids)
+                        latest_time = max(latest_time, *cmd.times)
+                self.queue.put(cmd)
 
-        self.queue.put(SourceDoneCommand())
+        logger.info('TOTAL FIXES: %s', fix_count)
+        self.queue.put(SourceDoneCommand(latest_time))
 
 
 class DateSource(Source):
     DATE_RESOLUTION = None
 
-    def __init__(self, config: 'Config', queue: PriorityQueue, *args: str):
+    def __init__(self, config: 'Config', queue: Queue, *args: str):
         super().__init__(config, queue, *args)
         if len(args) != 0 and len(args) != 2:
             logger.critical(

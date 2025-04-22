@@ -1,6 +1,6 @@
 import logging
 import os
-from queue import PriorityQueue
+from queue import Queue
 import signal
 import sys
 
@@ -36,9 +36,11 @@ SOURCES = [
 
 SOURCES_BY_NAME = {s.name(): s for s in SOURCES}
 
+MAX_OUTSTANDING_POSITIONS = 500
+
 
 class CompletionTimerThread(TimerThread):
-    def __init__(self, cfg: Config, queue: PriorityQueue, source: str):
+    def __init__(self, cfg: Config, queue: Queue, source: str):
         super().__init__(
             queue, cfg.completion_interval(source).seconds, CompleteCommand
         )
@@ -118,7 +120,7 @@ def run(
         # rate that data comes in so we need some mechanism to decouple the source
         # handling from the communication with the ingester via RabbitMQ. We use a
         # queue to do this.
-        queue = PriorityQueue()
+        command_queue = Queue(5)
 
         # Set up RabbitMQ handler.
         name=f'rx-{name}'
@@ -128,7 +130,7 @@ def run(
         rmq = RMQ(
             name=name,
             parameters=rmq_parameters(cfg),
-            out_queue=queue,
+            out_queue=command_queue,
             message_class=Message,
             exchanges=[RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE],
             wrapper_class=RMQCommand,
@@ -138,16 +140,18 @@ def run(
         )
 
         # Set up data source handler.
-        data_source = SOURCES_BY_NAME[source](cfg, queue, *args)
+        data_source = SOURCES_BY_NAME[source](cfg, command_queue, *args)
 
-        # Set up ingester check and completion timer threads.
-        completion_timer_thread = CompletionTimerThread(
-            cfg, queue, data_source.SOURCE
-        )
+        # Set up completion timer threads.
+        completion_timer_thread = None
+        if not historical:
+            completion_timer_thread = CompletionTimerThread(
+                cfg, command_queue, data_source.SOURCE
+            )
 
         # Set up ingester liveness checking.
         ingester_liveness = LivenessChecker(
-            rmq, 'ingester', queue, IngesterStatusCommand
+            rmq, 'ingester', command_queue, IngesterStatusCommand
         )
 
         # Start RabbitMQ handler (waits for connection to RabbitMQ broker and
@@ -162,7 +166,7 @@ def run(
         # Signal handling for tidy cleanup.
         def stop(_signum, _frame):
             ingester_liveness.stop()
-            queue.put(StopCommand())
+            command_queue.put(StopCommand())
         signal.signal(signal.SIGINT, stop)
         signal.signal(signal.SIGTERM, stop)
 
@@ -174,13 +178,14 @@ def run(
         logger.info('ingester_liveness.wait returned')
         if ingester_liveness.live:
             # Start the other threads.
-            completion_timer_thread.start()
+            if completion_timer_thread is not None:
+                completion_timer_thread.start()
             data_source.start()
 
             # Process messages from queue.
             processor = Processor(
-                cfg, data_source.SOURCE, historical, db, queue, rmq,
-                rpc_server[0] if len(rpc_server) > 0 else None
+                cfg, data_source.SOURCE, historical, db, command_queue,
+                rmq, rpc_server[0] if len(rpc_server) > 0 else None
             )
             processor.run()
     except Exception as e:
@@ -189,7 +194,8 @@ def run(
         # If we get here, the data source handler has already stopped, so we
         # just need to clean up the other worker threads and RabbitMQ.
         data_source.stop()
-        completion_timer_thread.stop()
+        if completion_timer_thread is not None:
+            completion_timer_thread.stop()
         ingester_liveness.stop()
         rmq.stop()
 

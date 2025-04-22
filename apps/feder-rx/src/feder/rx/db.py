@@ -1,31 +1,12 @@
-from dataclasses import dataclass
 from datetime import datetime
 import logging
 import os
 import sqlite3
 
-import pandas as pd
-
-from feder.server import Config
+from feder.server import Config, Fix
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Fix:
-    transponder_id: str
-    time: int
-    orig: str | None
-    dest: str | None
-    callsign: str
-    aircraft_type: str | None
-    lat: float
-    lon: float
-    alt: float | None
-    alt_gnss: float | None
-    heading: float | None
-    on_ground: bool
 
 
 class DB:
@@ -123,23 +104,23 @@ class DB:
             ).fetchall()
         ]
 
-    def get_trajectory(self, source_id: str) -> pd.DataFrame:
+    def get_trajectory(self, source_id: str) -> list[Fix]:
         sql = """
            SELECT transponder_id, time, orig, dest, callsign,
              aircraft_type, lat, lon, alt, alt_gnss, heading, on_ground
              FROM fixes WHERE source_id = ? ORDER BY time
         """
         cur = self.conn.cursor()
-        rows = []
-        for row in cur.execute(sql, (source_id, )).fetchall():
-            rows.append(Fix(
+        return [
+            Fix(
                 transponder_id=row[0], time=row[1],
                 orig=row[2], dest=row[3],
                 callsign=row[4], aircraft_type=row[5],
                 lat=row[6], lon=row[7], alt=row[6], alt_gnss=row[8],
                 heading=row[10], on_ground=row[11]
-            ))
-        return pd.DataFrame(rows).convert_dtypes()
+            )
+            for row in cur.execute(sql, (source_id,)).fetchall()
+        ]
 
     def delete_trajectory(self, source_id: str) -> None:
         sql = 'DELETE FROM fixes WHERE source_id = ?'

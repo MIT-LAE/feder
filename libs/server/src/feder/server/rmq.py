@@ -286,7 +286,6 @@ class RMQ(Thread):
         try:
             packed_message = message.pack()
         except Exception as exc:
-            print(exc)
             raise ValueError('message type does not support packing')
 
         # Message number used for publish confirmation: returned to caller for
@@ -342,7 +341,7 @@ class RMQ(Thread):
 
         # Message number used for publish confirmation: returned to caller for
         # later correlation with ACK/NACK messages.
-        self._message_number += 1
+        # self._message_number += 1
 
         # Thread-safe invocation of method to do actual message sending within
         # I/O loop.
@@ -365,7 +364,7 @@ class RMQ(Thread):
             self,
             request_message: RPCMessage,
             reply_message: Any
-    ) -> int:
+    ) -> None:
         """Send a reply to an RPC invocation."""
 
         self._check_ready()
@@ -394,7 +393,7 @@ class RMQ(Thread):
         # later correlation with ACK/NACK messages. I think we need to
         # increment this here even though we don't use the message number,
         # just to keep our count aligned with pika's count.
-        self._message_number += 1
+        # self._message_number += 1
 
         # Thread-safe invocation of method to do actual message sending within
         # I/O loop.
@@ -403,7 +402,7 @@ class RMQ(Thread):
                 self._rpc_reply, request_message, packed_reply_message
             )
         )
-        return self._message_number
+        # return self._message_number
 
     #----------------------------------------------------------------------------
     #

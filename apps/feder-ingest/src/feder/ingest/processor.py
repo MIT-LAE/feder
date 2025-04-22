@@ -25,6 +25,7 @@ class Processor:
         self.db = db
         self.queue = queue
         self.rmq = rmq
+        self._trajectory_count = 0
 
     def run(self):
         done = False
@@ -40,7 +41,11 @@ class Processor:
                     match cmd.message:
                         case rmq.DataMessage() as msg:
                             trajectory = cast(Trajectory, msg.message)
-                            logger.info('TRAJECTORY message: %s', trajectory.model.callsign)
+                            self._trajectory_count += 1
+                            logger.info(
+                                'TRAJECTORY message (%s): %s',
+                                self._trajectory_count, trajectory.model.callsign
+                            )
                             self.db.add_trajectory(trajectory.model)
                         case rmq.RPCMessage() as msg:
                             match msg.endpoint:
@@ -51,7 +56,3 @@ class Processor:
                                     logger.warning(
                                         'unknown RPC endpoint: %s', msg.endpoint
                                     )
-                        case rmq.DataMessage() as msg:
-                            logger.info(
-                                'trajectory for callsign %s', msg.data.callsign
-                            )

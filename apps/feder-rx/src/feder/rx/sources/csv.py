@@ -1,12 +1,13 @@
 import csv
 from datetime import datetime
 import logging
-from queue import PriorityQueue
+from queue import Queue
+from typing import Generator
 
 from feder.server import Config
 
 from feder.common import DataSource
-from ..commands import BatchSourcePositionCommand
+from ..commands import Command, BatchSourcePositionCommand
 from . import FileSource
 
 
@@ -44,7 +45,7 @@ class CSVSource(FileSource):
     NAME = 'csv'
     BATCH_SIZE = 100
 
-    def __init__(self, config: Config, queue: PriorityQueue, *args: str):
+    def __init__(self, config: Config, queue: Queue, *args: str):
         super().__init__(config, queue, *args)
         self._clear()
 
@@ -64,9 +65,7 @@ class CSVSource(FileSource):
         self._on_grounds = []
         self._nrows = 0
 
-    def process_file(self, filename):
-        logger.info('Processing CSV: %s', filename)
-
+    def process_file(self, filename) -> Generator[Command, None, None]:
         # Helper for value conversion.
         def n(r, c, xform):
             return None if r[c] == '' else xform(r[c])

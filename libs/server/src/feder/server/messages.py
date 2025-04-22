@@ -13,6 +13,8 @@ import pandas as pd
 from feder.common.utils import Packer, Unpacker
 import feder.common.models as models
 
+from .models import Fix
+
 
 logger = logging.getLogger(__name__)
 
@@ -65,30 +67,30 @@ class Trajectory(Message):
 
     @classmethod
     def build(
-            cls, source: models.DataSource, source_id: str, df: pd.DataFrame
+            cls, source: models.DataSource, source_id: str, fixes: list[Fix]
     ) -> Self:
-        _single_value_column_check(df, 'transponder_id')
-        _single_value_column_check(df, 'callsign')
-        _single_value_column_check(df, 'orig')
-        _single_value_column_check(df, 'dest')
-        _single_value_column_check(df, 'aircraft_type')
+        _single_value_check(source_id, fixes, 'transponder_id')
+        _single_value_check(source_id, fixes, 'callsign')
+        _single_value_check(source_id, fixes, 'orig')
+        _single_value_check(source_id, fixes, 'dest')
+        _single_value_check(source_id, fixes, 'aircraft_type')
         return cls(
             model=models.Trajectory(
                 source=source,
                 source_id=source_id,
-                transponder_id=df.transponder_id[0] or '',
-                orig=df.orig[0] or '',
-                dest=df.dest[0] or '',
-                callsign=df.callsign[0] or '',
-                aircraft_type = df.aircraft_type[0] or '',
+                transponder_id=fixes[0].transponder_id or '',
+                orig=fixes[0].orig or '',
+                dest=fixes[0].dest or '',
+                callsign=fixes[0].callsign or '',
+                aircraft_type = fixes[0].aircraft_type or '',
                 points=[
                     models.Point(
-                        time=datetime.fromtimestamp(t.time), lon=t.lon, lat=t.lat,
-                        alt=_substitute_none(t.alt),
-                        alt_gnss=_substitute_none(t.alt_gnss),
-                        heading=_substitute_none(t.heading),
-                        on_ground=t.on_ground
-                    ) for t in df.itertuples()
+                        time=datetime.fromtimestamp(f.time), lon=f.lon, lat=f.lat,
+                        alt=_substitute_none(f.alt),
+                        alt_gnss=_substitute_none(f.alt_gnss),
+                        heading=_substitute_none(f.heading),
+                        on_ground=f.on_ground
+                    ) for f in fixes
                 ]
             )
         )
@@ -143,13 +145,19 @@ MESSAGE_TAG_DICT = {
 }
 
 
-def _single_value_column_check(df: pd.DataFrame, column_name: str):
-    if len(set(df[column_name])) != 1:
-        msg = f'inconsistent {column_name} in position fixes: {list(df[column_name])}'
+def _single_value_check(source_id: str, fixes: list[Fix], field_name: str):
+    vals = [getattr(f, field_name) for f in fixes]
+    if len(set(vals)) != 1:
+        msg = f'inconsistent {field_name} for {source_id} in position fixes: {vals}'
         logger.warn(msg)
 
         # Just take a majority vote.
-        df[column_name] = Counter(df[column_name]).most_common(1)[0][0]
+        vals = [v for v in vals if v is not None]
+        if len(vals) == 0:
+            return
+        majority = Counter(vals).most_common(1)[0][0]
+        for f in fixes:
+            setattr(f, field_name, majority)
 
 
 def _substitute_none(xs):
