@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+import functools
 
 import feder.server.rmq as rmq
 
@@ -7,23 +8,44 @@ import feder.server.rmq as rmq
 # Classes representing different commands that go into the internal command
 # queue.
 
+@functools.total_ordering
 class Command:
-    ...
+    def priority(self) -> rmq.Message.Priority:
+        return rmq.Message.Priority.MEDIUM
+
+    def __eq__(self, other):
+        return self.priority() == other.priority()
+
+    def __lt__(self, other):
+        if isinstance(self, RMQCommand) and isinstance(other, RMQCommand):
+            return self.message < other.message
+        else:
+            return self.priority() < other.priority()
 
 
 @dataclass
 class SourceErrorCommand(Command):
     message: str
 
+    def priority(self) -> rmq.Message.Priority:
+        return rmq.Message.Priority.HIGH
+
 
 @dataclass
 class SourceDoneCommand(Command):
     latest_time: datetime
 
+    def priority(self) -> rmq.Message.Priority:
+        # Make sure this gets processed late.
+        return rmq.Message.Priority.LOW
+
 
 @dataclass
 class IngesterStatusCommand(Command):
     live: bool
+
+    def priority(self) -> rmq.Message.Priority:
+        return rmq.Message.Priority.HIGH
 
 
 class CompleteCommand(Command):
@@ -31,16 +53,20 @@ class CompleteCommand(Command):
 
 
 class StopCommand(Command):
-    ...
+    def priority(self) -> rmq.Message.Priority:
+        return rmq.Message.Priority.HIGH
 
 
 @dataclass
 class RMQCommand(Command):
     message: rmq.Message
 
+    def priority(self) -> rmq.Message.Priority:
+        return self.message.priority()[0]
+
 
 @dataclass
-class SourcePositionCommand:
+class SourcePositionCommand(Command):
     source_id: str
     transponder_id: str
     time: datetime
@@ -57,7 +83,7 @@ class SourcePositionCommand:
 
 
 @dataclass
-class BatchSourcePositionCommand:
+class BatchSourcePositionCommand(Command):
     source_ids: list[str]
     transponder_ids: list[str]
     times: list[datetime]

@@ -1,10 +1,11 @@
 from datetime import datetime
 
 from feder.rx.commands import (
-    FileCompleteCommand, CompleteCommand, IngesterStatusCommand,
+    CompleteCommand, IngesterStatusCommand,
     SourceDoneCommand, SourceErrorCommand, SourcePositionCommand,
-    StopCommand, TrajectoryCommand
+    StopCommand, RMQCommand
 )
+import feder.server.rmq as rmq
 
 
 def test_command_ordering():
@@ -19,23 +20,43 @@ def test_command_ordering():
         on_ground=False
     )
     source_error = SourceErrorCommand('this is an error')
-    source_done = SourceDoneCommand()
+    source_done = SourceDoneCommand(datetime.now())
     ingester_status = IngesterStatusCommand(live=True)
     complete = CompleteCommand()
-    file_complete = FileCompleteCommand()
-    trajectory = TrajectoryCommand('dummy-id')
     stop = StopCommand()
+    rmq_ack = RMQCommand(message=rmq.AckMessage(delivery_tag=2))
+    rmq_nack = RMQCommand(message=rmq.NackMessage(delivery_tag=1))
+    rmq_data = RMQCommand(message=rmq.DataMessage(
+        delivery_tag=4, exchange='test-exchange', message='DUMMY'
+    ))
+    rmq_rpc = RMQCommand(message=rmq.RPCMessage(
+        delivery_tag=5,
+        endpoint='test-endpoint',
+        reply_to='amq.something',
+        correlation_id='DUMMY-ID',
+        message='DUMMY'
+    ))
+    rmq_rpc_error = RMQCommand(message=rmq.RPCErrorMessage(
+        delivery_tag=6,
+        endpoint='test-endpoint',
+        correlation_id='DUMMY-ID',
+        reason='testing'
+    ))
 
     commands = sorted([
         source_pos, source_error, source_done,
-        ingester_status, complete, trajectory, stop,
-        file_complete
+        ingester_status, complete, stop,
+        rmq_ack, rmq_nack, rmq_data, rmq_rpc, rmq_rpc_error
     ])
 
     assert commands == [
-        source_error, stop,          # Priority 0
-        ingester_status, trajectory, # Priority 1
-        file_complete, source_pos,   # Priority 2
-        complete,                    # Priority 3
-        source_done                  # Priority 5
+        # High priority
+        source_error, ingester_status, stop,
+        rmq_nack, rmq_ack, rmq_rpc_error,
+
+        # Medium priority
+        complete, source_pos, rmq_rpc,
+
+        # Low priority
+        source_done, rmq_data
     ]

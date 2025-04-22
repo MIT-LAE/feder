@@ -1,9 +1,10 @@
 from dataclasses import dataclass
+from enum import Enum, auto
 import functools
 import logging
-from queue import Queue
+from queue import PriorityQueue
 from threading import Thread, Event, Timer
-from typing import Callable, Any
+from typing import Callable, Any, Self
 import uuid
 
 from pika import (
@@ -20,22 +21,63 @@ logger = logging.getLogger(__name__)
 logging.getLogger('pika').setLevel(logging.WARNING)
 
 
+@functools.total_ordering
 @dataclass
 class Message:
-    """Base class for messages sent to output queue."""
+    """Base class for messages sent to output queue.
+
+       Messages have a priority, based on the idea that ACKs and NACKs should
+       be processed immediately, and RPC requests should be processed before
+       normal data messages (because there is a client waiting for a
+       response). These priorities should be used in the RMQ client to manage
+       message processing.
+    """
+
     delivery_tag: int
+
+    @functools.total_ordering
+    class Priority(Enum):
+        # Order priorities to match the way that Python's queue.PriorityQueue
+        # works: lowest priority value comes off the queue first.
+        HIGH = auto()
+        MEDIUM = auto()
+        LOW = auto()
+
+        def __lt__(self, other):
+            if self.__class__ is other.__class__:
+                return self.value < other.value
+            return NotImplemented
+
+    def priority_level(self) -> 'Message.Priority':
+        return Message.Priority.MEDIUM
+
+    def priority(self) -> tuple['Message.Priority', int]:
+        return (self.priority_level(), self.delivery_tag)
+
+    def __eq__(self, other):
+        return self.priority() == other.priority()
+
+    def __lt__(self, other):
+        (slevel, stag) = self.priority()
+        (olevel, otag) = other.priority()
+        if slevel < olevel:
+            return True
+        if slevel == olevel:
+            return stag < otag
 
 
 @dataclass
 class AckMessage(Message):
     """ACK message for publish confirmation sent to output queue."""
-    ...
+    def priority_level(self) -> Message.Priority:
+        return Message.Priority.HIGH
 
 
 @dataclass
 class NackMessage(Message):
     """NACK message for publish confirmation sent to output queue."""
-    ...
+    def priority_level(self) -> Message.Priority:
+        return Message.Priority.HIGH
 
 
 @dataclass
@@ -43,6 +85,9 @@ class DataMessage(Message):
     """Received data message sent to output queue."""
     exchange: str
     message: Any
+
+    def priority_level(self) -> Message.Priority:
+        return Message.Priority.LOW
 
 
 @dataclass
@@ -60,6 +105,9 @@ class RPCErrorMessage(Message):
     endpoint: str
     correlation_id: str
     reason: str
+
+    def priority_level(self) -> Message.Priority:
+        return Message.Priority.HIGH
 
 
 @dataclass
@@ -129,7 +177,7 @@ class RMQ(Thread):
             self,
             name: str,
             parameters: ConnectionParameters,
-            out_queue: Queue,
+            out_queue: PriorityQueue,
             message_class: type,
             exchanges: list[str],
             consumers: list[Consumer] | None = None,
@@ -145,9 +193,9 @@ class RMQ(Thread):
 
         :param str name: Name used to make unique RabbitMQ queue names
         :param pika.ConnectionParameters parameters: Connection parameters
-        :param queue.Queue out_queue: Output queue for consumption messages,
-            publish confirmation ACK/NACK messages and RPC messages
-        :param type message_class: Base class for all messages sent.
+        :param queue.PriorityQueue out_queue: Output queue for consumption
+            messages, publish confirmation ACK/NACK messages and RPC messages
+        :param type message_class: Base class for all messages sent
         :param list[str] exchanges: List of RabbitMQ exchanges to create
         :param list[Consumer] | None consumers: Consumption configuration
             associating exchange names with Protocol Buffers message types for
