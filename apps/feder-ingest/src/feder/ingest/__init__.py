@@ -1,5 +1,5 @@
 import logging
-from queue import Queue
+from queue import PriorityQueue
 import signal
 
 import click
@@ -10,7 +10,7 @@ from feder.server import (
     LivenessChecker, Consumer, Message, Trajectory
 )
 
-from .commands import StopCommand, RMQCommand
+from .commands import RMQCommand
 from .db_cache import DBCache
 from .processor import Processor
 
@@ -34,7 +34,7 @@ def run(debug: bool, config: str | None) -> None:
     cfg = Config(config)
 
     # Set up command queue.
-    queue = Queue()
+    queue = PriorityQueue(10)
 
     # Set up RabbitMQ handler.
     name = 'ingester'
@@ -57,8 +57,11 @@ def run(debug: bool, config: str | None) -> None:
     rmq.start()
 
     # Signal handling for tidy cleanup.
+    processor = None
     def stop(_signum, _frame):
-        queue.put(StopCommand())
+        if processor is None:
+            return
+        processor.immediate_stop()
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
@@ -75,6 +78,11 @@ def run(debug: bool, config: str | None) -> None:
     # If we get here, the ingester has already stopped, so we just need to
     # clean up RabbitMQ.
     rmq.stop()
+
+    # Drain the command queue to prevent any threads that want to write to it
+    # getting stuck.
+    while not queue.empty():
+        queue.get()
 
 if __name__ == '__main__':
     run()

@@ -1,6 +1,6 @@
 import logging
 import os
-from queue import Queue
+from queue import PriorityQueue
 import signal
 import sys
 
@@ -12,9 +12,7 @@ from feder.server import (
     Message, TimerThread, LivenessChecker
 )
 
-from .commands import (
-    StopCommand, IngesterStatusCommand, CompleteCommand, RMQCommand
-)
+from .commands import IngesterStatusCommand, CompleteCommand, RMQCommand
 from .sources.contrails_api import ContrailsAPISource
 from .sources.csv import CSVSource
 from .sources.flightaware import FlightAwareSource
@@ -40,7 +38,7 @@ MAX_OUTSTANDING_POSITIONS = 500
 
 
 class CompletionTimerThread(TimerThread):
-    def __init__(self, cfg: Config, queue: Queue, source: str):
+    def __init__(self, cfg: Config, queue: PriorityQueue, source: str):
         super().__init__(
             queue, cfg.completion_interval(source).seconds, CompleteCommand
         )
@@ -120,7 +118,7 @@ def run(
         # rate that data comes in so we need some mechanism to decouple the source
         # handling from the communication with the ingester via RabbitMQ. We use a
         # queue to do this.
-        command_queue = Queue(5)
+        command_queue = PriorityQueue(5)
 
         # Set up RabbitMQ handler.
         name=f'rx-{name}'
@@ -164,9 +162,11 @@ def run(
             sys.exit(1)
 
         # Signal handling for tidy cleanup.
+        processor = None
         def stop(_signum, _frame):
-            ingester_liveness.stop()
-            command_queue.put(StopCommand())
+            if processor is None:
+                return
+            processor.immediate_stop()
         signal.signal(signal.SIGINT, stop)
         signal.signal(signal.SIGTERM, stop)
 
@@ -175,7 +175,7 @@ def run(
         ingester_liveness.start()
         logger.info('waiting for ingester...')
         ingester_liveness.wait()
-        logger.info('ingester_liveness.wait returned')
+        logger.info('ingester is alive')
         if ingester_liveness.live:
             # Start the other threads.
             if completion_timer_thread is not None:
@@ -191,13 +191,18 @@ def run(
     except Exception as e:
         logger.exception('fatal exception: %s', e)
     finally:
-        # If we get here, the data source handler has already stopped, so we
-        # just need to clean up the other worker threads and RabbitMQ.
+        # If we get here, the process is stopped, so we need to clean up the
+        # worker threads and RabbitMQ.
         data_source.stop()
         if completion_timer_thread is not None:
             completion_timer_thread.stop()
         ingester_liveness.stop()
         rmq.stop()
+
+        # Drain the command queue to prevent any threads that want to write to
+        # it getting stuck.
+        while not command_queue.empty():
+            command_queue.get()
 
     if historical and not keep_historical_staging:
         db.remove(force=True)

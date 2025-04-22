@@ -26,6 +26,7 @@ class Command:
 @dataclass
 class SourceErrorCommand(Command):
     message: str
+    stop: bool
 
     def priority(self) -> rmq.Message.Priority:
         return rmq.Message.Priority.HIGH
@@ -50,11 +51,6 @@ class IngesterStatusCommand(Command):
 
 class CompleteCommand(Command):
     ...
-
-
-class StopCommand(Command):
-    def priority(self) -> rmq.Message.Priority:
-        return rmq.Message.Priority.HIGH
 
 
 @dataclass

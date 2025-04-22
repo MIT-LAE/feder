@@ -898,6 +898,7 @@ class RMQ(Thread):
         endpoint_name = method.routing_key
         if endpoint_name not in self._rpc_endpoints_by_name:
             raise ValueError(f'unknown RPC endpoint: {endpoint_name}')
+        logger.info('RPC request: %s', endpoint_name)
         endpoint = self._rpc_endpoints_by_name[endpoint_name]
         try:
             message = self.base_message_class.unpack(body)

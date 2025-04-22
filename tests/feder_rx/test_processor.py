@@ -2,12 +2,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from queue import PriorityQueue
 from threading import Thread
+import time
 from unittest.mock import Mock
 
 from feder.common import DataSource
 from feder.server import Message
+import feder.server.rmq as rmq
 from feder.rx import Processor
-from feder.rx.commands import SourceDoneCommand, SourcePositionCommand
+from feder.rx.db import DB
+from feder.rx.commands import (
+    SourceDoneCommand, SourcePositionCommand, RMQCommand
+)
 
 
 @dataclass
@@ -15,14 +20,18 @@ class Wrapper:
     content: Message
 
 
-def test_source_position_command_processing(config, db):
+def test_source_position_command_processing(config):
     # Test that source position commands result in new position fix rows in
-    # the database.
+    # the database and that these get processed into a trajectory.
 
+    db = DB(config, 'processor')
     queue = PriorityQueue()
+    rmq_mock = Mock()
+    DELIVERY_TAG = 123
+    rmq_mock.send = Mock(return_value=DELIVERY_TAG)
     processor = Processor(
         config, DataSource.FLIGHTAWARE, False, db, queue,
-        rmq=Mock(), liveness_endpoint=None
+        rmq=rmq_mock, liveness_endpoint=None
     )
 
     def send_position_fixes():
@@ -50,7 +59,11 @@ def test_source_position_command_processing(config, db):
             lat=41.2, lon=-95.0, alt=35000, alt_gnss=None, heading=None,
             on_ground=False
         ))
-        queue.put(SourceDoneCommand())
+        queue.put(SourceDoneCommand(latest_time=datetime(2025, 4, 1, 12, 2)))
+        time.sleep(0.01)
+        queue.put(RMQCommand(
+            message=rmq.AckMessage(delivery_tag=DELIVERY_TAG)
+        ))
 
     before_rows = db.count_entries()
 
@@ -61,4 +74,5 @@ def test_source_position_command_processing(config, db):
 
     after_rows = db.count_entries()
 
-    assert after_rows - before_rows == 3
+    assert after_rows - before_rows == 0
+    rmq_mock.send.assert_called_once()

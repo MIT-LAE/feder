@@ -3,11 +3,10 @@ from datetime import datetime, timedelta
 import glob
 import itertools
 import logging
-from queue import Queue
+from queue import Queue, Full
 import sys
 from threading import Thread, Event
-import time
-from typing import Generator
+from typing import Generator, Any
 
 from feder.common import DataSource
 from feder.server import Config
@@ -56,6 +55,15 @@ class Source(Thread):
         self.wait_finished = Event()
         return self.stopped
 
+    def put(self, x: Any) -> None:
+        success = False
+        while not self.stopped and not success:
+            try:
+                self.queue.put(x, timeout=0.1)
+                success = True
+            except Full:
+                pass
+
     @abstractmethod
     def run(self):
         ...
@@ -83,6 +91,8 @@ class FileSource(Source):
         for f in self.csv_files:
             logger.info('Processing %s', f)
             for cmd in self.process_file(f):
+                if self.stopped:
+                    return
                 match cmd:
                     case SourcePositionCommand():
                         fix_count += 1
@@ -90,10 +100,10 @@ class FileSource(Source):
                     case BatchSourcePositionCommand():
                         fix_count += len(cmd.source_ids)
                         latest_time = max(latest_time, *cmd.times)
-                self.queue.put(cmd)
+                self.put(cmd)
 
-        logger.info('TOTAL FIXES: %s', fix_count)
-        self.queue.put(SourceDoneCommand(latest_time))
+        logger.info('Total position fixes from source: %s', fix_count)
+        self.put(SourceDoneCommand(latest_time))
 
 
 class DateSource(Source):

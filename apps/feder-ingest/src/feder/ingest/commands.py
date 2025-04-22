@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from datetime import datetime
 from functools import total_ordering
 
 import feder.server.rmq as rmq
@@ -17,10 +16,6 @@ class Command:
 
     def __lt__(self, other):
         return self.PRIORITY < other.PRIORITY
-
-
-class StopCommand(Command):
-    PRIORITY = 0
 
 
 @dataclass

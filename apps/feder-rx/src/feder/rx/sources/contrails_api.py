@@ -12,7 +12,7 @@ from feder.common import DataSource
 from feder.server import Config
 
 from . import DateSource
-from ..commands import SourceErrorCommand, SourcePositionCommand, StopCommand
+from ..commands import SourceErrorCommand, SourcePositionCommand
 from ..utils import round_time
 
 
@@ -111,7 +111,7 @@ class ContrailsAPISource(DateSource):
         # receiver process is interrupted by some error condition, either an
         # external signal or a failure to retrieve ADS-B data after repeated
         # retries.
-        self.queue.put(StopCommand())
+        self.queue.put(SourceErrorCommand('unknown error', stop=True))
 
     def retrieve(self, t: datetime) -> pd.DataFrame | None:
         # ISO 8601 (UTC)

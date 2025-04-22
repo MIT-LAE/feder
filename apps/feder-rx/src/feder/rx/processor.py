@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import logging
-from queue import Queue
+from queue import Queue, PriorityQueue
+from threading import Event
 
 from feder.common import DataSource
 from feder.server import Config, RMQ, Trajectory, LivenessChecker
@@ -10,7 +11,7 @@ from .commands import (
     SourcePositionCommand, BatchSourcePositionCommand,
     SourceErrorCommand, SourceDoneCommand,
     IngesterStatusCommand, CompleteCommand,
-    StopCommand, RMQCommand
+    RMQCommand
 )
 from .db import DB
 
@@ -26,9 +27,8 @@ class Processor:
     def __init__(
             self,
             config: Config, source: DataSource, historical: bool,
-            # db: DB, queue: PriorityQueue, rmq: RMQ,
-            db: DB, command_queue: Queue,
-            rmq: RMQ, liveness_endpoint: str | None
+            db: DB, command_queue: PriorityQueue, rmq: RMQ,
+            liveness_endpoint: str | None
     ):
         self.config = config
         self.source = source
@@ -42,19 +42,20 @@ class Processor:
 
         self._trajectory_queue = Queue()
         self._done = False
+        self._immediate_stop = Event()
         self._done_pending = False
         self._final_completion_pending = False
         self._pending_rmq_messages = {}
         self._fix_count_total = 0
         self._fix_count_last_completion = 0
-        self._fix_time_latest = None
+        self._fix_time_latest = datetime(1, 1, 1)
         self._fix_time_last_completion = None
         self._real_time_last_completion = datetime.now()
         self._trajectory_count = 0
 
     def run(self):
         # Process messages from command queue.
-        while not self._done:
+        while not self._done and not self._immediate_stop.is_set():
             # If we had got a DONE command and were just waiting for
             # trajectory completion to finish, stop now.
             if (
@@ -82,6 +83,9 @@ class Processor:
             if self._final_completion_pending or self._ok_to_complete():
                 self._complete_trajectories(self._final_completion_pending)
                 self._final_completion_pending = False
+
+    def immediate_stop(self):
+        self._immediate_stop.set()
 
     def _ok_to_complete(self):
         # If there have been a lot of fixes since the last completion, we can
@@ -114,10 +118,6 @@ class Processor:
         self._fix_time_last_completion = self._fix_time_latest
         self._real_time_last_completion = datetime.now()
         source_ids = self._identify_complete_trajectories(final)
-        # logger.info(
-        #     'Trajectory completion cycle: %s trajectories',
-        #     len(source_ids)
-        # )
         for source_id in source_ids:
             self._trajectory_queue.put(source_id)
 
@@ -125,10 +125,7 @@ class Processor:
         old_fix_count = self._fix_count_total
         self._fix_count_total += fixes_processed
         if self._fix_count_total // 1000 != old_fix_count // 1000:
-            logger.info(
-                'processed %s position fixes',
-                round(self._fix_count_total, -3)
-            )
+            logger.info('%s position fixes', round(self._fix_count_total, -3))
 
     def _process_one(self, command):
         match command:
@@ -138,20 +135,17 @@ class Processor:
             case BatchSourcePositionCommand() as cmd:
                 self._log_positions(self._batch_source_position(cmd))
 
-            case SourceErrorCommand(message):
-                # We just log the errors here. If a source wants to exit
-                # after an error, it will send a StopCommand.
+            case SourceErrorCommand(message, stop):
+                # Log errors and stop if requested.
                 logger.error('Source error: %s', message)
+                if stop:
+                    self._done = True
 
             case SourceDoneCommand(latest_time):
                 self._source_done(latest_time)
 
             case CompleteCommand():
                 self._complete_trajectories()
-
-            case StopCommand():
-                # Interrupt: stop immediately!
-                self._done = True
 
             case IngesterStatusCommand(live):
                 # TODO: Handle changes in ingester status here.
@@ -201,7 +195,7 @@ class Processor:
                 del self._pending_rmq_messages[tag]
 
     def _source_position(self, cmd: SourcePositionCommand) -> int:
-        self._fix_time_latest = cmd.time
+        self._fix_time_latest = max(self._fix_time_latest, cmd.time)
         self.db.save_position(
             cmd.source_id, cmd.transponder_id, cmd.time,
             cmd.orig, cmd.dest, cmd.callsign, cmd.aircraft_type,
@@ -211,7 +205,7 @@ class Processor:
         return 1
 
     def _batch_source_position(self, cmd: BatchSourcePositionCommand) -> int:
-        self._fix_time_latest = cmd.times[-1]
+        self._fix_time_latest = max(self._fix_time_latest, *cmd.times)
         self.db.save_positions(
             cmd.source_ids, cmd.transponder_ids, cmd.times,
             cmd.origs, cmd.dests, cmd.callsigns, cmd.aircraft_types,
@@ -229,9 +223,7 @@ class Processor:
     def _trajectory(self, source_id: str):
         self._trajectory_count += 1
         if self._trajectory_count % 100 == 0:
-            logger.info(
-                'processed %s trajectories', self._trajectory_count
-            )
+            logger.info('%s trajectories', self._trajectory_count)
 
         # Process a single complete trajectory. If this doesn't
         # work, then the position fixes for the trajectory will

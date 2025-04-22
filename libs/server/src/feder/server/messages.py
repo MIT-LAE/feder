@@ -69,10 +69,13 @@ class Trajectory(Message):
     def build(
             cls, source: models.DataSource, source_id: str, fixes: list[Fix]
     ) -> Self:
+        # When fixing these, we take the latest non-null destination (assumed
+        # to be the final destination after any flight plan changes), the
+        # earliest non-null origin, and a majority vote for any others.
         _single_value_check(source_id, fixes, 'transponder_id')
         _single_value_check(source_id, fixes, 'callsign')
-        _single_value_check(source_id, fixes, 'orig')
-        _single_value_check(source_id, fixes, 'dest')
+        _single_value_check(source_id, fixes, 'orig', choice_index=0)
+        _single_value_check(source_id, fixes, 'dest', choice_index=-1)
         _single_value_check(source_id, fixes, 'aircraft_type')
         return cls(
             model=models.Trajectory(
@@ -145,19 +148,31 @@ MESSAGE_TAG_DICT = {
 }
 
 
-def _single_value_check(source_id: str, fixes: list[Fix], field_name: str):
+def _single_value_check(
+        source_id: str,
+        fixes: list[Fix],
+        field_name: str,
+        choice_index: int = None
+):
     vals = [getattr(f, field_name) for f in fixes]
     if len(set(vals)) != 1:
         msg = f'inconsistent {field_name} for {source_id} in position fixes: {vals}'
-        logger.warn(msg)
 
-        # Just take a majority vote.
+        # Choose a value from the non-null items.
         vals = [v for v in vals if v is not None]
         if len(vals) == 0:
+            logger.warn(msg + ' (no suitable value found)')
             return
-        majority = Counter(vals).most_common(1)[0][0]
+
+        # If an index is specified, use it. Otherwise take a majority vote.
+        selected = None
+        if choice_index is not None:
+            selected = vals[choice_index]
+        else:
+            selected = Counter(vals).most_common(1)[0][0]
+        logger.warn(msg + f' (selected "{selected}")')
         for f in fixes:
-            setattr(f, field_name, majority)
+            setattr(f, field_name, selected)
 
 
 def _substitute_none(xs):
