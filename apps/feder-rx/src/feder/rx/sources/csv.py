@@ -45,7 +45,7 @@ class CSVSource(FileSource):
     NAME = 'csv'
     BATCH_SIZE = 100
 
-    def __init__(self, config: Config, queue: Queue, *args: str, **kwargs):
+    def __init__(self, config: Config, queue: Queue, *args, **kwargs):
         super().__init__(config, queue, *args, **kwargs)
         self._clear()
 

@@ -59,10 +59,6 @@ class CompletionTimerThread(TimerThread):
     help='Clear staging database before starting.'
 )
 @click.option(
-    '--keep-historical-staging/--no-keep-historical-staging', default=False,
-    help='Keep staging database for historical runs.'
-)
-@click.option(
     '--start-time', '-s',
     help='Start time (ISO 8601) for historical processing'
 )
@@ -82,7 +78,7 @@ class CompletionTimerThread(TimerThread):
 @click.argument('glob_args', nargs=-1)
 def run(
         debug: bool, config: str | None,
-        purge_staging: bool, keep_historical_staging: bool,
+        purge_staging: bool,
         start_time: str | None, end_time: str | None,
         file_cache: str | None,
         source: str, glob_args: tuple[str, ...]
@@ -230,7 +226,8 @@ def run(
             # Process messages from queue.
             processor = Processor(
                 cfg, data_source.SOURCE, historical, db, command_queue,
-                rmq, rpc_server[0] if len(rpc_server) > 0 else None
+                rmq, rpc_server[0] if len(rpc_server) > 0 else None,
+                data_source.control
             )
             processor.run()
             print('processor.run returned')
@@ -250,9 +247,12 @@ def run(
         while not command_queue.empty():
             command_queue.get()
 
-    if historical and not keep_historical_staging:
-        db.remove(force=True)
-
+        cur = db.conn.cursor()
+        remaining = [
+            t[0] for t in
+            cur.execute('SELECT DISTINCT source_id FROM fixes ORDER BY source_id').fetchall()
+        ]
+        print('# remaining at end =', len(remaining))
 
 if __name__ == '__main__':
     run()

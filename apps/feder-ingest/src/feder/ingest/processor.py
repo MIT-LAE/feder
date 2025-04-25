@@ -1,10 +1,12 @@
+from datetime import datetime
 import logging
 from queue import PriorityQueue
 from threading import Event
 from typing import cast
 
-from feder.common import Trajectory
-from feder.server import Config, RMQ, LivenessChecker, TrajectoryBatch
+from feder.server import (
+    Config, RMQ, LivenessChecker, TrajectoryBatch, log_counts
+)
 import feder.server.rmq as rmq
 
 from .commands import RMQCommand
@@ -28,6 +30,7 @@ class Processor:
         self.rmq = rmq
         self._trajectory_count = 0
         self._immediate_stop = Event()
+        self._last_batch_time = datetime.now()
 
     def run(self):
         done = False
@@ -42,17 +45,23 @@ class Processor:
                     match cmd.message:
                         case rmq.DataMessage() as msg:
                             batch = cast(TrajectoryBatch, msg.message)
-                            old_trajectory_count = self._trajectory_count
-                            self._trajectory_count += len(batch.trajectories)
-                            if self._trajectory_count // 100 != old_trajectory_count // 100:
-                                logger.info('%s trajectories', round(self._trajectory_count, -2))
+                            self._last_batch_time = batch.sent_at
+                            self._trajectory_count = log_counts(
+                                logger, 'trajectories',
+                                self._trajectory_count, len(batch.trajectories), 2
+                            )
                             for traj in batch.trajectories:
                                 self.db.add_trajectory(traj.model)
                         case rmq.RPCMessage() as msg:
                             match msg.endpoint:
                                 case 'liveness:ingester':
                                     logger.debug('RPC request: liveness check')
-                                    LivenessChecker.send_reply(self.rmq, msg)
+                                    LivenessChecker.send_reply(
+                                        self.rmq, msg,
+                                        info=dict(
+                                            last_batch_time=self._last_batch_time
+                                        )
+                                    )
                                 case _:
                                     logger.warning(
                                         'unknown RPC endpoint: %s', msg.endpoint

@@ -11,3 +11,10 @@ def logging_setup(debug: bool = False) -> None:
     )
     logging.getLogger('pika').setLevel(logging.WARNING)
     logging.captureWarnings(True)
+
+
+def log_counts(logger, name, old_count, increment, scale):
+    new_count = old_count + increment
+    if new_count // 10**scale != old_count // 10**scale:
+        logger.info('%s ' + name, round(new_count, -scale))
+    return new_count

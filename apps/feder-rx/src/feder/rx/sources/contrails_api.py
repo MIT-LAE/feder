@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 import logging
 from queue import PriorityQueue
-from typing import Any, cast
+from typing import Generator
 
 import numpy as np
 import pandas as pd
@@ -12,7 +12,10 @@ from feder.common import DataSource
 from feder.server import Config
 
 from . import DateSource
-from ..commands import SourceErrorCommand, SourcePositionCommand
+from ..commands import (
+    Command, SourceErrorCommand, SourceDoneCommand,
+    SourcePositionCommand, BatchSourcePositionCommand
+)
 from ..utils import round_time
 
 
@@ -21,18 +24,36 @@ logger = logging.getLogger(__name__)
 
 class ContrailsAPISource(DateSource):
     SOURCE = DataSource.CONTRAILS_API
+    BATCH_SIZE = 100
 
     # The Contrails API provides hourly ADS-B files.
     DATE_RESOLUTION = 'h'
     DATE_INTERVAL = timedelta(hours=1)
 
-    def __init__(self, config: Config, queue: PriorityQueue, *args: str):
+    def __init__(self, config: Config, queue: PriorityQueue, *args, **kwargs):
         super().__init__(config, queue, *args)
         self.api_key = config.credentials(self.SOURCE)['api_key']
+        self._clear()
 
         # There's no way to check that the credentials are OK at this point.
         # We just need to go ahead and try the ADS-B endpoint and generate a
         # source error command if it fails.
+
+    def _clear(self):
+        self._source_ids = []
+        self._transponder_ids = []
+        self._times = []
+        self._origs = []
+        self._dests = []
+        self._callsigns = []
+        self._aircraft_types = []
+        self._lats = []
+        self._lons = []
+        self._alts = []
+        self._alts_gnss = []
+        self._headings = []
+        self._on_grounds = []
+        self._nrows = 0
 
     def run(self):
         if self.historical:
@@ -48,32 +69,72 @@ class ContrailsAPISource(DateSource):
 
     def run_historical(self):
         request_time = self.start_time
-        while request_time < self.end_time:
-            df = self.retrieve(request_time)
+        fix_count = 0
+        latest_time = datetime(1, 1, 1)
+        while request_time <= self.end_time:
+            df = self._retrieve(request_time)
             if df is None:
                 self.retrieve_error(request_time)
                 break
-            self.process_df(df)
+            for cmd in self.process_df(df):
+                if self.stopped:
+                    return
+                self.control.check()
+                match cmd:
+                    case SourcePositionCommand():
+                        fix_count += 1
+                        latest_time = max(latest_time, cmd.time)
+                    case BatchSourcePositionCommand():
+                        fix_count += len(cmd.source_ids)
+                        latest_time = max(latest_time, *cmd.times)
+                self.put(cmd)
+
             request_time += self.DATE_INTERVAL
 
-    def process_df(self, df):
-        for tup in df.itertuples(index=False):
-            # Needed to suppress spurious pyright messages.
-            tup: Any = cast(Any, tup)
+        logger.info('Total position fixes from source: %s', fix_count)
+        self.put(SourceDoneCommand(latest_time))
 
-            self.queue.put(SourcePositionCommand(
-                source_id=tup.flight_id,
-                transponder_id=tup.icao_address,
-                time=tup.timestamp,
-                callsign=tup.callsign,
-                aircraft_type=tup.aircraft_type_icao,
-                lat=tup.latitude,
-                lon=tup.longitude,
-                alt=tup.altitude_baro,
-                alt_gnss=None if np.isnan(tup.altitude_gnss) else int(tup.altitude_gnss),
-                heading=None,
-                on_ground=False
-            ))
+    def process_df(self, df) -> Generator[Command, None, None]:
+        # Helper for value conversion.
+        def n(x, xform):
+            return None if np.isnan(x) or x == '' else xform(x)
+
+        for tup in df.itertuples(index=False):
+            # One source position command per row.
+            self._source_ids.append(tup.flight_id)
+            self._transponder_ids.append(tup.icao_address)
+            self._times.append(tup.timestamp.to_pydatetime())
+            self._callsigns.append(n(tup.callsign, str))
+            self._origs.append(n(tup.departure_airport_icao, str))
+            self._dests.append(n(tup.arrival_airport_icao, str))
+            self._aircraft_types.append(n(tup.aircraft_type_icao, str))
+            self._lats.append(float(tup.latitude))
+            self._lons.append(float(tup.longitude))
+            self._alts.append(n(tup.altitude_baro, float))
+            self._alts_gnss.append(n(tup.altitude_gnss, float))
+            self._headings.append(None)
+            self._on_grounds.append(False)
+            self._nrows += 1
+
+            if self._nrows == self.BATCH_SIZE:
+                yield BatchSourcePositionCommand(
+                    self._source_ids, self._transponder_ids, self._times,
+                    self._origs, self._dests, self._callsigns,
+                    self._aircraft_types,
+                    self._lats, self._lons, self._alts, self._alts_gnss,
+                    self._headings, self._on_grounds
+                )
+                self._clear()
+
+        if self._nrows > 0:
+            yield BatchSourcePositionCommand(
+                self._source_ids, self._transponder_ids, self._times,
+                self._origs, self._dests, self._callsigns,
+                self._aircraft_types,
+                self._lats, self._lons, self._alts, self._alts_gnss,
+                self._headings, self._on_grounds
+            )
+            self._clear()
 
     def run_live(self):
         retrieval_time = datetime.now() - self.config.data_lag(self.SOURCE)
@@ -86,7 +147,7 @@ class ContrailsAPISource(DateSource):
                 break
 
             # Try retrieving the next file.
-            df = self.retrieve(retrieval_time)
+            df = self._retrieve(retrieval_time)
 
             # If the retrieval failed, we try again for the same file in 5
             # minutes.
@@ -103,6 +164,7 @@ class ContrailsAPISource(DateSource):
                 retries += 1
                 continue
 
+            # TODO: FIX THIS
             self.process_df(df)
             retries = 0
             retrieval_time += self.DATE_INTERVAL
@@ -113,9 +175,15 @@ class ContrailsAPISource(DateSource):
         # retries.
         self.queue.put(SourceErrorCommand('unknown error', stop=True))
 
-    def retrieve(self, t: datetime) -> pd.DataFrame | None:
+    def _retrieve(self, t: datetime) -> pd.DataFrame | None:
         # ISO 8601 (UTC)
         tstr = _format_time(t)
+
+        cached_path = self.cached_file(f'{tstr}.pq')
+        if cached_path is not None:
+            logger.info('Using cached Spire ADS-B data for %s', tstr)
+            return pd.read_parquet(cached_path)
+
         logger.info('Retrieving Spire ADS-B data for %s', tstr)
 
         r = requests.get(

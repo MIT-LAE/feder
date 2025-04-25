@@ -103,11 +103,13 @@ class TrajectoryBatch(Message):
     MESSAGE_TAG = 'T'
 
     trajectories: list[Trajectory]
+    sent_at: datetime
 
     def _pack(self, packer: Packer):
         packer('>B', len(self.trajectories))
         for traj in self.trajectories:
             traj.model.pack(packer=packer)
+        packer('>L', int(self.sent_at.timestamp()))
 
     @classmethod
     def _unpack(cls, unpacker: Unpacker) -> Self:
@@ -120,7 +122,8 @@ class TrajectoryBatch(Message):
                     )
                 )
                 for i in range(ntrajs)
-            ]
+            ],
+            sent_at=datetime.fromtimestamp(unpacker('>L'))
         )
 
 
@@ -135,35 +138,89 @@ class LivenessQuery(Message):
     MESSAGE_TAG = 'L'
 
     source: str
+    include_info: bool
 
     def _pack(self, packer: Packer):
         packer.str(self.source)
+        packer('>?', self.include_info)
 
     @classmethod
     def _unpack(cls, unpacker: Unpacker) -> Self:
-        return cls(source=unpacker.str())
+        return cls(
+            source=unpacker.str(),
+            include_info=unpacker('>?')
+        )
 
 
 @dataclass
 class LivenessResponse(Message):
     MESSAGE_TAG = 'l'
+    Info = dict[str, int | float | str | datetime] | None
 
     source: str
     time: datetime
     status: Liveness
+    info: Info = None
 
     def _pack(self, packer: Packer):
         packer.str(self.source)
         packer('>Q', int(self.time.timestamp()))
         packer('>B', self.status.value)
+        self._pack_info(packer)
 
     @classmethod
     def _unpack(cls, unpacker: Unpacker) -> Self:
         return cls(
             source=unpacker.str(),
             time=datetime.fromtimestamp(unpacker('>Q')),
-            status=Liveness(unpacker('>B'))
+            status=Liveness(unpacker('>B')),
+            info=cls._unpack_info(unpacker)
         )
+
+    def _pack_info(self, packer: Packer):
+        if self.info is None:
+            packer('>B', 0)
+        else:
+            packer('>B', len(self.info))
+            for k, v in self.info.items():
+                packer.str(k)
+                if isinstance(v, int):
+                    packer('>B', ord('I'))
+                    packer('>q', v)
+                elif isinstance(v, float):
+                    packer('>B', ord('F'))
+                    packer('>d', v)
+                elif isinstance(v, str):
+                    packer('>B', ord('S'))
+                    packer.str(v)
+                elif isinstance(v, datetime):
+                    packer('>B', ord('D'))
+                    packer('>L', int(v.timestamp()))
+                else:
+                    raise ValueError('invalid info property in LivenessResponse')
+
+    @classmethod
+    def _unpack_info(cls, unpacker: Unpacker):
+        nentries = unpacker('>B')
+        if nentries == 0:
+            return None
+        info = {}
+        for i in range(nentries):
+            k = unpacker.str()
+            tag = chr(unpacker('>B'))
+            match tag:
+                case 'I':
+                    v = unpacker('>q')
+                case 'F':
+                    v = unpacker('>d')
+                case 'S':
+                    v = unpacker.str()
+                case 'D':
+                    v = datetime.fromtimestamp(unpacker('>L'))
+                case _:
+                    raise ValueError('invalid info property in LivenessResponse')
+            info[k] = v
+        return info
 
 
 MESSAGE_TAG_DICT = {

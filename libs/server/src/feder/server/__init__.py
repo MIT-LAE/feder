@@ -1,4 +1,5 @@
 from .config import *  # noqa
+from .control import *  # noqa
 from .liveness import *  # noqa
 from .logging import *  # noqa
 from .messages import *  # noqa

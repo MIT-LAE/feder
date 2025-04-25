@@ -14,8 +14,11 @@ class DB:
         self.config = config
         self.name = name
         self.historical = historical
-        self.db_path = os.path.join(config.scratch_directory, name + '.db')
-        os.makedirs(config.scratch_directory, exist_ok=True)
+        if historical:
+            self.db_path = ':memory:'
+        else:
+            self.db_path = os.path.join(config.scratch_directory, name + '.db')
+            os.makedirs(config.scratch_directory, exist_ok=True)
         self.conn = sqlite3.connect(self.db_path)
         self._ensure_schema()
 

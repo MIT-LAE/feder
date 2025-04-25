@@ -33,14 +33,16 @@ class LivenessChecker(Thread):
     def send_reply(
             rmq: RMQ,
             query: RPCMessage,
-            status: Liveness = Liveness.OK
+            status: Liveness = Liveness.OK,
+            info: LivenessResponse.Info = None
     ):
         rmq.rpc_reply(
             query,
             LivenessResponse(
                 source=rmq.name,
                 time=datetime.now(),
-                status=status
+                status=status,
+                info=info
             )
         )
 
@@ -50,9 +52,9 @@ class LivenessChecker(Thread):
             name: str,
             out_queue: Queue,
             status_command: type,
-            timeout_interval: int = 3,
-            ok_check_interval: int = 30,
-            down_check_interval: int = 10,
+            timeout_interval: int = 5,
+            ok_check_interval: int = 3,
+            down_check_interval: int = 1,
             *args, **kwargs
     ):
         super().__init__(*args, **kwargs)
@@ -72,6 +74,7 @@ class LivenessChecker(Thread):
         self._live = False
         self._last_reponse_received = None
         self._last_reponse_sent = None
+        self._response_info = {}
 
     @property
     def live(self):
@@ -85,8 +88,12 @@ class LivenessChecker(Thread):
     def last_response_sent(self):
         return self._last_response_sent
 
+    @property
+    def response_info(self):
+        return self._response_info
+
     def _set_status(self):
-        self.out_queue.put(self.status_command(self._live))
+        self.out_queue.put(self.status_command(self._live, self._response_info))
 
     def _process_callback(self, correlation_id: str, status: bool):
         if (
@@ -103,6 +110,7 @@ class LivenessChecker(Thread):
         logger.debug('liveness response from %s', self.endpoint)
         self._last_response_received = datetime.now()
         self._last_response_sent = message.time
+        self._response_info = message.info
         self._process_callback(correlation_id, True)
 
     def _error_callback(self, correlation_id: str, reason: str):
@@ -117,7 +125,7 @@ class LivenessChecker(Thread):
     def run(self):
         while not self._stopped:
             self._waiting = Event()
-            query = LivenessQuery(source=self.rmq.name)
+            query = LivenessQuery(source=self.rmq.name, include_info=True)
             self._correlation_id = self.rmq.send_rpc(
                 self.endpoint, query,
                 self._callback,

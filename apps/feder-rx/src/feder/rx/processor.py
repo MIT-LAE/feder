@@ -5,7 +5,8 @@ from threading import Event
 
 from feder.common import DataSource
 from feder.server import (
-    Config, RMQ, Trajectory, TrajectoryBatch, LivenessChecker
+    Config, RMQ, Trajectory, TrajectoryBatch, LivenessChecker,
+    log_counts, ThreadControl
 )
 import feder.server.rmq as rmq
 
@@ -22,16 +23,17 @@ logger = logging.getLogger(__name__)
 
 
 class Processor:
-    N_FIXES_FOR_COMPLETION = 500
-    DT_LATEST_FOR_COMPLETION = timedelta(minutes=5)
+    N_FIXES_FOR_COMPLETION = 1000
+    DT_LATEST_FOR_COMPLETION = timedelta(minutes=15)
     DT_REAL_FOR_COMPLETIONS = timedelta(minutes=15)
-    TRAJECTORY_BATCH_SIZE = 20
+    TRAJECTORY_BATCH_SIZE = 100
+    SLOW_INGESTER_INTERVAL = timedelta(seconds=5)
 
     def __init__(
             self,
             config: Config, source: DataSource, historical: bool,
             db: DB, command_queue: PriorityQueue, rmq: RMQ,
-            liveness_endpoint: str | None
+            liveness_endpoint: str | None, source_control: ThreadControl
     ):
         self.config = config
         self.source = source
@@ -42,6 +44,7 @@ class Processor:
         self.data_lag = self.config.data_lag(self.source)
         self.completion_delay = self.config.completion_delay(self.source)
         self.liveness_endpoint = liveness_endpoint
+        self.source_control = source_control
 
         self._trajectories = []
         self._done = False
@@ -55,6 +58,7 @@ class Processor:
         self._fix_time_last_completion = None
         self._real_time_last_completion = datetime.now()
         self._trajectory_count = 0
+        self._last_sent_time = datetime.now()
 
     def run(self):
         # Process messages from command queue.
@@ -65,6 +69,7 @@ class Processor:
                     self._done_pending and
                     not self._final_completion_pending and
                     self.command_queue.empty() and
+                    len(self._trajectories) == 0 and
                     len(self._pending_rmq_messages) == 0
             ):
                 self._done = True
@@ -128,10 +133,9 @@ class Processor:
         self._trajectories += self._identify_complete_trajectories(final)
 
     def _log_positions(self, fixes_processed):
-        old_fix_count = self._fix_count_total
-        self._fix_count_total += fixes_processed
-        if self._fix_count_total // 1000 != old_fix_count // 1000:
-            logger.info('%s position fixes', round(self._fix_count_total, -3))
+        self._fix_count_total = log_counts(
+            logger, 'position fixes', self._fix_count_total, fixes_processed, 4
+        )
 
     def _process_one(self, command):
         match command:
@@ -148,15 +152,26 @@ class Processor:
                     self._done = True
 
             case SourceDoneCommand(latest_time):
+                logger.info('SOURCE-DONE')
                 self._source_done(latest_time)
 
             case CompleteCommand():
                 self._complete_trajectories()
 
-            case IngesterStatusCommand(live):
-                # TODO: Handle changes in ingester status here.
+            case IngesterStatusCommand(live, info):
+                run_source = True
                 if not live:
                     logger.info('Ingester has failed!')
+                    run_source = False
+                else:
+                    last_batch_time = info.get('last_batch_time', datetime.now())
+                    if self._last_sent_time - last_batch_time > self.SLOW_INGESTER_INTERVAL:
+                        logger.info('Waiting for ingester...')
+                        run_source = False
+                if run_source:
+                    self.source_control.resume()
+                else:
+                    self.source_control.pause()
 
             case RMQCommand() as cmd:
                 match cmd.message:
@@ -226,10 +241,9 @@ class Processor:
         self._done_pending = True
 
     def _send_trajectories(self, source_ids: list[str]):
-        old_trajectory_count = self._trajectory_count
-        self._trajectory_count += len(source_ids)
-        if self._trajectory_count // 100 != old_trajectory_count // 100:
-            logger.info('%s trajectories', round(self._trajectory_count, -2))
+        self._trajectory_count = log_counts(
+            logger, 'trajectories', self._trajectory_count, len(source_ids), 2
+        )
 
         # Process a set of complete trajectories. If this doesn't work, then
         # the position fixes for the trajectory will remain in the database to
@@ -255,7 +269,10 @@ class Processor:
 
         # Send trajectory payload out over RabbitMQ, returning message number
         # for ACK/NACK processing.
-        message_number = self.rmq.send('trajectory', TrajectoryBatch(payloads))
+        self._last_sent_time = datetime.now()
+        message_number = self.rmq.send(
+            'trajectory', TrajectoryBatch(payloads, self._last_sent_time)
+        )
         if message_number is not None:
             self._pending_rmq_messages[message_number] = source_ids
 

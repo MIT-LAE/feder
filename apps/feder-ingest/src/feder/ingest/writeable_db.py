@@ -53,6 +53,11 @@ class WritableDB(DB):
             points BLOB NOT NULL /* Packed point data. */
           )""")
 
+        cur.execute("""
+          CREATE INDEX IF NOT EXISTS trajectory_source_id_index
+              ON trajectories(source, source_id)
+          """)
+
     def add_trajectory(
             self,
             traj: Trajectory,

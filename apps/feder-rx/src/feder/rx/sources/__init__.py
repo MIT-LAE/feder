@@ -10,7 +10,7 @@ from threading import Thread, Event
 from typing import Generator, Any
 
 from feder.common import DataSource
-from feder.server import Config
+from feder.server import Config, ThreadControl
 
 from ..utils import round_time
 from ..commands import (
@@ -48,6 +48,7 @@ class Source(Thread):
             raise ValueError('unknown source')
         self._check_args()
         self._wait_finished = Event()
+        self.control = ThreadControl()
         self.stopped = False
 
     @classmethod
@@ -77,6 +78,12 @@ class Source(Thread):
             except Full:
                 pass
 
+    def cached_file(self, name) -> str | None:
+        if self.file_cache is None:
+            return None
+        p = os.path.join(self.file_cache, os.path.basename(name))
+        return p if os.path.exists(p) else None
+
     @abstractmethod
     def _check_args(self):
         ...
@@ -98,34 +105,31 @@ class FileSource(Source):
         ...
 
     def run(self):
-        expanded_csv_files = list(itertools.chain.from_iterable(
+        expanded_files = list(itertools.chain.from_iterable(
             (sorted(glob.glob(os.path.expanduser(f))) if '*' in f else [f])
             for f in list(self.glob_args)
         ))
 
-        if len(expanded_csv_files) == 0:
-            logger.error('No files provided to CSV source!')
+        if len(expanded_files) == 0:
+            logger.error('No files provided to file source!')
             return
 
-        self.csv_files = expanded_csv_files
+        self.files = expanded_files
 
         fix_count = 0
         latest_time = datetime(1, 1, 1)
-        for f in self.csv_files:
-            from_cache = False
-            if self.file_cache is not None:
-                cache_candidate = os.path.join(
-                    self.file_cache, os.path.basename(f)
-                )
-                if os.path.exists(cache_candidate):
-                    f = cache_candidate
-                    from_cache = True
+        for f in self.files:
+            cached_path = self.cached_file(f)
+            if cached_path is not None:
+                f = cached_path
             logger.info(
-                'Processing %s%s', f, ' (from file cache)' if from_cache else ''
+                'Processing %s%s', f,
+                ' (from file cache)' if cached_path is not None else ''
             )
             for cmd in self.process_file(f):
                 if self.stopped:
                     return
+                self.control.check()
                 match cmd:
                     case SourcePositionCommand():
                         fix_count += 1
