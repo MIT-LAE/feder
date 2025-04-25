@@ -158,7 +158,8 @@ class RMQ(Thread):
           resetting via the RabbitMQ management interface.
         - Reconnection logic waits a fixed time to reconnect after an error.
         - Message number count reset happens when the channel is recreated,
-          since RabbitMQ message counts are per-channel.
+          since RabbitMQ message counts are per-channel. (And message numbers
+          are separate between the "normal" and RPC channels!)
        - It's hard to know when it's OK to stop the IO loop for a clean
          shutdown, because there can be messages in transit. This is left as
          an application-level decision. Access is provided to publish
@@ -170,6 +171,7 @@ class RMQ(Thread):
       - RPC requests are routed using the endpoint name as the routing key.
       - Correlation of RPC requests and replies is done via unique correlation
         IDs generated when a request is made.
+
     """
     RPC_EXCHANGE = 'rpc'
 
@@ -862,6 +864,8 @@ class RMQ(Thread):
     #----------------------------------------------------------------------------
 
     def _on_message(self, consumer: Consumer, _ch, method, props, body):
+        assert self._channel is not None
+
         # All messages are passed using a message class hierarchy that knows
         # how to pack and unpack messages, so parse the supplied message class
         # from the message body.
@@ -876,7 +880,8 @@ class RMQ(Thread):
                 'error unpacking message body for exchange "%s"',
                 consumer.exchange
             )
-            self._channel.basic_nack(method.delivery_tag)
+            if self._channel.is_open:
+                self._channel.basic_nack(method.delivery_tag)
             return
 
         # Pass the received message to the outer application context,
@@ -891,8 +896,8 @@ class RMQ(Thread):
         ))
 
         # Acknowledge all messages immediately.
-        assert self._channel is not None
-        self._channel.basic_ack(method.delivery_tag)
+        if self._channel.is_open:
+            self._channel.basic_ack(method.delivery_tag)
 
     def _on_rpc_request(self, _ch, method, props, body):
         endpoint_name = method.routing_key

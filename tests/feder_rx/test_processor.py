@@ -74,5 +74,4 @@ def test_source_position_command_processing(config):
 
     after_rows = db.count_entries()
 
-    assert after_rows - before_rows == 0
-    rmq_mock.send.assert_called_once()
+    assert after_rows - before_rows == 3

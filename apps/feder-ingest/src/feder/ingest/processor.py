@@ -4,7 +4,7 @@ from threading import Event
 from typing import cast
 
 from feder.common import Trajectory
-from feder.server import Config, RMQ, LivenessChecker
+from feder.server import Config, RMQ, LivenessChecker, TrajectoryBatch
 import feder.server.rmq as rmq
 
 from .commands import RMQCommand
@@ -34,14 +34,20 @@ class Processor:
 
         while not done and not self._immediate_stop.is_set():
             match self.queue.get():
+                case 'STOP':
+                    # Used by immediate_stop to break out of loop.
+                    pass
+
                 case RMQCommand() as cmd:
                     match cmd.message:
                         case rmq.DataMessage() as msg:
-                            trajectory = cast(Trajectory, msg.message)
-                            self._trajectory_count += 1
-                            if self._trajectory_count % 100 == 0:
-                                logger.info('%s trajectories', self._trajectory_count)
-                            self.db.add_trajectory(trajectory.model)
+                            batch = cast(TrajectoryBatch, msg.message)
+                            old_trajectory_count = self._trajectory_count
+                            self._trajectory_count += len(batch.trajectories)
+                            if self._trajectory_count // 100 != old_trajectory_count // 100:
+                                logger.info('%s trajectories', round(self._trajectory_count, -2))
+                            for traj in batch.trajectories:
+                                self.db.add_trajectory(traj.model)
                         case rmq.RPCMessage() as msg:
                             match msg.endpoint:
                                 case 'liveness:ingester':
@@ -54,3 +60,4 @@ class Processor:
 
     def immediate_stop(self):
         self._immediate_stop.set()
+        self.queue.put('STOP')

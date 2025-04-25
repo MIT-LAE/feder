@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 # Virtual host and exchange names for RabbitMQ processing.
-RMQ_VIRTUAL_HOST = 'flight-data'
+RMQ_VIRTUAL_HOST = 'feder'
 RMQ_TRAJECTORY_EXCHANGE = 'trajectory'
 RMQ_MONITOR_EXCHANGE = 'monitor'
 

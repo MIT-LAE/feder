@@ -7,7 +7,7 @@ import click
 from feder.server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE,
-    LivenessChecker, Consumer, Message, Trajectory
+    LivenessChecker, Consumer, Message, TrajectoryBatch
 )
 
 from .commands import RMQCommand
@@ -45,7 +45,7 @@ def run(debug: bool, config: str | None) -> None:
         message_class=Message,
         exchanges=[RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE],
         consumers=[
-            Consumer(RMQ_TRAJECTORY_EXCHANGE, Trajectory, durable=True)
+            Consumer(RMQ_TRAJECTORY_EXCHANGE, TrajectoryBatch, durable=True)
         ],
         wrapper_class=RMQCommand,
         rpc_client=True,

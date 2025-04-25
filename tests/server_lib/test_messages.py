@@ -1,16 +1,17 @@
+import bz2
 from datetime import datetime
-import string
 
 from hypothesis import given, settings, strategies as st
 
-import feder.common.models as models
 from feder.server import (
-    Message, Trajectory, Liveness, LivenessQuery, LivenessResponse
+    Message,
+    Liveness, LivenessQuery, LivenessResponse,
+    Trajectory, TrajectoryBatch
 )
 
 from ..conftest import (
     EARLIEST_TIME, LATEST_TIME,
-    point_strategy, short_string_strategy, airport_strategy
+    short_string_strategy, trajectory_strategy
 )
 
 
@@ -33,20 +34,17 @@ def test_liveness_response_encoding(r):
 
 @given(st.builds(
     Trajectory,
-    model=st.builds(
-        models.Trajectory,
-        source_id=short_string_strategy,
-        source=st.sampled_from(models.DataSource),
-        transponder_id=st.text(
-            min_size=6, max_size=6, alphabet='0123456789ABCDEF'
-        ),
-        orig=airport_strategy,
-        dest=airport_strategy,
-        callsign=st.text(
-            min_size=4, max_size=7, alphabet=string.ascii_uppercase + string.digits
-        ),
-        aircraft_type=st.sampled_from([None, 'A300', 'B737']),
-        points=st.lists(point_strategy, min_size=1, max_size=100))))
+    model=trajectory_strategy
+))
 @settings(max_examples=1000)
 def test_trajectory_encoding(t):
+    assert t == Message.unpack(t.pack())
+
+
+@given(st.builds(
+    TrajectoryBatch,
+    trajectories=st.lists(st.builds(Trajectory, model=trajectory_strategy))
+))
+@settings(max_examples=200)
+def test_trajectory_batch_encoding(t):
     assert t == Message.unpack(t.pack())

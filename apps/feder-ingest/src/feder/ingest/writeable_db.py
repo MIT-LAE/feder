@@ -23,6 +23,9 @@ class WritableDB(DB):
     def _create_db(self) -> None:
         logger.info('creating database file %s', self._db_file())
 
+        # Ensure directory exists.
+        os.makedirs(os.path.dirname(self._db_file()), exist_ok=True)
+
         # Need to make a separate connection here because this will be called
         # before the database file exists.
         conn = sqlite3.connect(self._db_file())

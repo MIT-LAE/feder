@@ -87,7 +87,12 @@ class DB:
              lats[i], lons[i], alts[i], alts_gnss[i],
              headings[i], on_grounds[i]) for i in range(len(source_ids))]
         cur = self.conn.cursor()
-        cur.executemany(sql, values)
+        try:
+            cur.executemany(sql, values)
+        except Exception:
+            logger.exception('insert into DB failed for %s positions', len(source_ids))
+            self.conn.rollback()
+            return
         self.conn.commit()
 
     def complete_source_ids(self, horizon: datetime) -> list[str]:

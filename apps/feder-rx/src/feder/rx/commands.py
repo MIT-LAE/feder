@@ -58,7 +58,7 @@ class RMQCommand(Command):
     message: rmq.Message
 
     def priority(self) -> rmq.Message.Priority:
-        return self.message.priority()[0]
+        return rmq.Message.Priority.HIGH
 
 
 @dataclass

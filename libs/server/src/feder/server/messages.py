@@ -47,10 +47,9 @@ class Message(ABC):
     def _unpack(cls, unpacker: Unpacker) -> Self:
         ...
 
-
 @dataclass
 class Trajectory(Message):
-    MESSAGE_TAG = 'T'
+    MESSAGE_TAG = 't'
 
     model: models.Trajectory
 
@@ -99,6 +98,32 @@ class Trajectory(Message):
         )
 
 
+@dataclass
+class TrajectoryBatch(Message):
+    MESSAGE_TAG = 'T'
+
+    trajectories: list[Trajectory]
+
+    def _pack(self, packer: Packer):
+        packer('>B', len(self.trajectories))
+        for traj in self.trajectories:
+            traj.model.pack(packer=packer)
+
+    @classmethod
+    def _unpack(cls, unpacker: Unpacker) -> Self:
+        ntrajs = int(unpacker('>B'))
+        return cls(
+            trajectories=[
+                Trajectory(
+                    model=models.Trajectory.unpack(
+                        data=None, unpacker=unpacker
+                    )
+                )
+                for i in range(ntrajs)
+            ]
+        )
+
+
 class Liveness(Enum):
     UNKNOWN = auto()
     OK = auto()
@@ -143,7 +168,7 @@ class LivenessResponse(Message):
 
 MESSAGE_TAG_DICT = {
     c.MESSAGE_TAG: c for c in [
-        Trajectory, LivenessQuery, LivenessResponse
+        Trajectory, TrajectoryBatch, LivenessQuery, LivenessResponse
     ]
 }
 
@@ -170,7 +195,7 @@ def _single_value_check(
             selected = vals[choice_index]
         else:
             selected = Counter(vals).most_common(1)[0][0]
-        logger.warn(msg + f' (selected "{selected}")')
+        logger.debug(msg + f' (selected "{selected}")')
         for f in fixes:
             setattr(f, field_name, selected)
 

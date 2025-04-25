@@ -36,15 +36,16 @@ class Point:
     def pack(cls, points: list[Self], packer: Packer | None = None) -> bytes:
         if packer is None:
             packer = Packer()
-        for p in enumerate(points):
+        packer('>H', len(points))
+        for p in points:
             packer(
                 cls.POINT_FORMAT,
-                int(p[1].time.timestamp()),
-                p[1].lon, p[1].lat,
-                encode_opt_float(p[1].alt),
-                encode_opt_float(p[1].alt_gnss),
-                encode_opt_float(p[1].heading),
-                p[1].on_ground
+                int(p.time.timestamp()),
+                p.lon, p.lat,
+                encode_opt_float(p.alt),
+                encode_opt_float(p.alt_gnss),
+                encode_opt_float(p.heading),
+                p.on_ground
             )
         return packer.data()
 
@@ -58,17 +59,19 @@ class Point:
             raise ValueError('must provide data or unpacker to Point.unpack')
         if unpacker is None:
             unpacker = Unpacker(data)
-        return [
-            cls(
+        npoints = unpacker('>H')
+        points = []
+        for i in range(npoints):
+            pt = unpacker(cls.POINT_FORMAT, multiple=True)
+            points.append(cls(
                 time=datetime.fromtimestamp(pt[0]),
                 lon=milli(pt[1]), lat=milli(pt[2]),
                 alt=decode_opt_float(milli(pt[3])),
                 alt_gnss=decode_opt_float(milli(pt[4])),
                 heading=decode_opt_float(milli(pt[5])),
                 on_ground=pt[6]
-            )
-            for pt in unpacker.iter(cls.POINT_FORMAT, multiple=True)
-        ]
+            ))
+        return points
 
 
 @dataclass

@@ -36,7 +36,7 @@ class DB:
     def _db_file(self):
         yr = self.ref_date.year
         doy = self.ref_date.timetuple().tm_yday
-        return os.path.join(self.data_dir, f'{yr:04d}-{doy:03d}.sqlite')
+        return os.path.join(self.data_dir, f'{yr:04d}/{yr:04d}-{doy:03d}.sqlite')
 
     @property
     def conn(self):

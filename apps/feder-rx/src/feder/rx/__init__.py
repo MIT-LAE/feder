@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 import os
 from queue import PriorityQueue
@@ -61,16 +62,30 @@ class CompletionTimerThread(TimerThread):
     '--keep-historical-staging/--no-keep-historical-staging', default=False,
     help='Keep staging database for historical runs.'
 )
+@click.option(
+    '--start-time', '-s',
+    help='Start time (ISO 8601) for historical processing'
+)
+@click.option(
+    '--end-time', '-e',
+    help='End time (ISO 8601) for historical processing'
+)
+@click.option(
+    '--file-cache',
+    help='Path to directory containing downloaded historical files'
+)
 @click.argument(
     'source',
     type=click.Choice([s.name() for s in SOURCES]),
     required=True
 )
-@click.argument('args', nargs=-1)
+@click.argument('glob_args', nargs=-1)
 def run(
         debug: bool, config: str | None,
         purge_staging: bool, keep_historical_staging: bool,
-        source: str, args: tuple[str, ...]
+        start_time: str | None, end_time: str | None,
+        file_cache: str | None,
+        source: str, glob_args: tuple[str, ...]
 ) -> None:
     try:
         logging_setup(debug)
@@ -83,7 +98,32 @@ def run(
         # process. That usually means a start and end timestamp, but for a
         # file-based receiver like the CSV processor, it will be a list of file
         # globs.
-        historical = len(args) != 0
+        if (start_time is None) != (end_time is None):
+            logger.critical(
+                'must provide neither or both of "start-time" and "end-time"'
+            )
+            sys.exit(1)
+        if len(glob_args) != 0 and start_time is not None:
+            logger.critical(
+                'either give start and end times OR list of file globs'
+            )
+            sys.exit(1)
+        if start_time is not None:
+            try:
+                start_time = datetime.fromisoformat(start_time)
+            except ValueError:
+                logger.critical('invalid ISO 8601 time for "start-time"')
+                sys.exit(1)
+            try:
+                end_time = datetime.fromisoformat(end_time)
+            except ValueError:
+                logger.critical('invalid ISO 8601 time for "end-time"')
+                sys.exit(1)
+        if file_cache is not None:
+            if not os.path.exists(file_cache):
+                logger.critical('provided file cache directory does not exist')
+                sys.exit(1)
+        historical = len(glob_args) != 0 or start_time is not None
 
         # Check that the source is enabled for live updates (signalled by not
         # passing in any arguments to run as a historical update process).
@@ -138,7 +178,11 @@ def run(
         )
 
         # Set up data source handler.
-        data_source = SOURCES_BY_NAME[source](cfg, command_queue, *args)
+        data_source = SOURCES_BY_NAME[source](
+            cfg, command_queue,
+            start_time=start_time, end_time=end_time,
+            file_cache=file_cache, glob_args=glob_args
+        )
 
         # Set up completion timer threads.
         completion_timer_thread = None
@@ -164,6 +208,7 @@ def run(
         # Signal handling for tidy cleanup.
         processor = None
         def stop(_signum, _frame):
+            print('STOP')
             if processor is None:
                 return
             processor.immediate_stop()
@@ -188,6 +233,7 @@ def run(
                 rmq, rpc_server[0] if len(rpc_server) > 0 else None
             )
             processor.run()
+            print('processor.run returned')
     except Exception as e:
         logger.exception('fatal exception: %s', e)
     finally:

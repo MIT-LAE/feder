@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import glob
 import itertools
 import logging
+import os
 from queue import Queue, Full
 import sys
 from threading import Thread, Event
@@ -27,14 +28,26 @@ class Source(Thread):
     NAME: str | None = None
     BATCH_SIZE: int = 1
 
-    def __init__(self, config: Config, queue: Queue, *args: str):
+    def __init__(
+            self,
+            config: Config,
+            queue: Queue,
+            start_time: datetime | None,
+            end_time: datetime | None,
+            file_cache: str | None,
+            glob_args: list[str]
+    ):
         super().__init__()
         self.config = config
         self.queue = queue
-        self.args = args
+        self.start_time = start_time
+        self.end_time = end_time
+        self.file_cache = file_cache
+        self.glob_args = glob_args
         if self.SOURCE is None:
             raise ValueError('unknown source')
-        self.wait_finished = Event()
+        self._check_args()
+        self._wait_finished = Event()
         self.stopped = False
 
     @classmethod
@@ -45,14 +58,14 @@ class Source(Thread):
 
     def stop(self):
         self.stopped = True
-        self.wait_finished.set()
+        self._wait_finished.set()
 
     def wait_for(self, t: datetime) -> bool:
         delta = t - datetime.now()
         if delta < timedelta(0):
             return self.stopped
-        self.wait_finished.wait(delta.total_seconds())
-        self.wait_finished = Event()
+        self._wait_finished.wait(delta.total_seconds())
+        self._wait_finished = Event()
         return self.stopped
 
     def put(self, x: Any) -> None:
@@ -65,19 +78,29 @@ class Source(Thread):
                 pass
 
     @abstractmethod
+    def _check_args(self):
+        ...
+
+    @abstractmethod
     def run(self):
         ...
 
 
 class FileSource(Source):
+    def _check_args(self):
+        if self.start_time is not None:
+            raise ValueError('file source does not use "start-time"')
+        if len(self.glob_args) == 0:
+            raise ValueError('no file globs provided for file data source')
+
     @abstractmethod
     def process_file(self, filename: str) -> Generator[Command, None, None]:
         ...
 
     def run(self):
         expanded_csv_files = list(itertools.chain.from_iterable(
-            (sorted(glob.glob(f)) if '*' in f else [f])
-            for f in list(self.args)
+            (sorted(glob.glob(os.path.expanduser(f))) if '*' in f else [f])
+            for f in list(self.glob_args)
         ))
 
         if len(expanded_csv_files) == 0:
@@ -89,7 +112,17 @@ class FileSource(Source):
         fix_count = 0
         latest_time = datetime(1, 1, 1)
         for f in self.csv_files:
-            logger.info('Processing %s', f)
+            from_cache = False
+            if self.file_cache is not None:
+                cache_candidate = os.path.join(
+                    self.file_cache, os.path.basename(f)
+                )
+                if os.path.exists(cache_candidate):
+                    f = cache_candidate
+                    from_cache = True
+            logger.info(
+                'Processing %s%s', f, ' (from file cache)' if from_cache else ''
+            )
             for cmd in self.process_file(f):
                 if self.stopped:
                     return

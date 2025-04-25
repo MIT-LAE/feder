@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
 import logging
-from queue import Queue, PriorityQueue
+from queue import PriorityQueue
 from threading import Event
 
 from feder.common import DataSource
-from feder.server import Config, RMQ, Trajectory, LivenessChecker
+from feder.server import (
+    Config, RMQ, Trajectory, TrajectoryBatch, LivenessChecker
+)
 import feder.server.rmq as rmq
 
 from .commands import (
@@ -23,6 +25,7 @@ class Processor:
     N_FIXES_FOR_COMPLETION = 500
     DT_LATEST_FOR_COMPLETION = timedelta(minutes=5)
     DT_REAL_FOR_COMPLETIONS = timedelta(minutes=15)
+    TRAJECTORY_BATCH_SIZE = 20
 
     def __init__(
             self,
@@ -40,7 +43,7 @@ class Processor:
         self.completion_delay = self.config.completion_delay(self.source)
         self.liveness_endpoint = liveness_endpoint
 
-        self._trajectory_queue = Queue()
+        self._trajectories = []
         self._done = False
         self._immediate_stop = Event()
         self._done_pending = False
@@ -62,18 +65,23 @@ class Processor:
                     self._done_pending and
                     not self._final_completion_pending and
                     self.command_queue.empty() and
-                    self._trajectory_queue.empty() and
                     len(self._pending_rmq_messages) == 0
             ):
                 self._done = True
                 continue
 
-            while not self._trajectory_queue.empty():
-                source_id = self._trajectory_queue.get()
-                self._trajectory(source_id)
+            if len(self._trajectories) != 0:
+                self._send_trajectories(
+                    self._trajectories[:self.TRAJECTORY_BATCH_SIZE]
+                )
+                self._trajectories = self._trajectories[self.TRAJECTORY_BATCH_SIZE:]
 
             try:
-                self._process_one(self.command_queue.get())
+                cmd = self.command_queue.get()
+                if cmd == 'STOP':
+                    # Used by immediate_stop to break out of loop.
+                    continue
+                self._process_one(cmd)
             except Exception:
                 logger.exception('command processing failed')
 
@@ -81,7 +89,7 @@ class Processor:
                 continue
 
             if self._final_completion_pending or self._ok_to_complete():
-                self._complete_trajectories(self._final_completion_pending)
+                self._add_trajectories(self._final_completion_pending)
                 self._final_completion_pending = False
 
     def immediate_stop(self):
@@ -113,13 +121,11 @@ class Processor:
         # Otherwise, not yet.
         return False
 
-    def _complete_trajectories(self, final: bool = False):
+    def _add_trajectories(self, final: bool = False):
         self._fix_count_last_completion = self._fix_count_total
         self._fix_time_last_completion = self._fix_time_latest
         self._real_time_last_completion = datetime.now()
-        source_ids = self._identify_complete_trajectories(final)
-        for source_id in source_ids:
-            self._trajectory_queue.put(source_id)
+        self._trajectories += self._identify_complete_trajectories(final)
 
     def _log_positions(self, fixes_processed):
         old_fix_count = self._fix_count_total
@@ -158,7 +164,7 @@ class Processor:
                         # If publication to RabbitMQ was successful, delete all
                         # position fixes from the database for the related source
                         # ID and for all earlier delivery tags.
-                        self._process_ack_nack(delivery_tag, delete_trajectory=True)
+                        self._process_ack_nack(delivery_tag, delete_trajectories=True)
 
                     case rmq.NackMessage(delivery_tag):
                         # If publication to RabbitMQ was unsuccessful, don't
@@ -166,7 +172,7 @@ class Processor:
                         # related source ID. They will be picked up again in
                         # the next trajectory completion cycle. (But do clear
                         # all earlier delivery tags.)
-                        self._process_ack_nack(delivery_tag, delete_trajectory=False)
+                        self._process_ack_nack(delivery_tag, delete_trajectories=False)
 
                     case rmq.RPCMessage() as msg:
                         if msg.endpoint == self.liveness_endpoint:
@@ -181,17 +187,16 @@ class Processor:
                             'unexpected RMQ message "%s"', cmd.message
                         )
 
-    def _process_ack_nack(self, delivery_tag: int, delete_trajectory: bool):
+    def _process_ack_nack(self, delivery_tag: int, delete_trajectories: bool):
         if delivery_tag in self._pending_rmq_messages:
             to_delete = [
                 tag for tag in self._pending_rmq_messages.keys()
                 if tag <= delivery_tag
             ]
             for tag in to_delete:
-                if delete_trajectory:
-                    self.db.delete_trajectory(
-                        self._pending_rmq_messages[tag]
-                    )
+                if delete_trajectories:
+                    for source_id in self._pending_rmq_messages[tag]:
+                        self.db.delete_trajectory(source_id)
                 del self._pending_rmq_messages[tag]
 
     def _source_position(self, cmd: SourcePositionCommand) -> int:
@@ -220,28 +225,39 @@ class Processor:
         self._final_completion_pending = True
         self._done_pending = True
 
-    def _trajectory(self, source_id: str):
-        self._trajectory_count += 1
-        if self._trajectory_count % 100 == 0:
-            logger.info('%s trajectories', self._trajectory_count)
+    def _send_trajectories(self, source_ids: list[str]):
+        old_trajectory_count = self._trajectory_count
+        self._trajectory_count += len(source_ids)
+        if self._trajectory_count // 100 != old_trajectory_count // 100:
+            logger.info('%s trajectories', round(self._trajectory_count, -2))
 
-        # Process a single complete trajectory. If this doesn't
-        # work, then the position fixes for the trajectory will
-        # remain in the database to be reprocessed in the next
-        # completion cycle.
+        # Process a set of complete trajectories. If this doesn't work, then
+        # the position fixes for the trajectory will remain in the database to
+        # be reprocessed in the next completion cycle.
         #
-        # A special case here is if a trajectory completion fails
-        # in the final trajectory completion cycle of a historical
-        # processing job. (This case just falls through to the
-        # "attempt to remove a non-empty staging database" error,
-        # since there will be position fixes left in the database
-        # when the process exits.)
+        # A special case here is if a trajectory completion fails in the final
+        # trajectory completion cycle of a historical processing job. (This
+        # case just falls through to the "attempt to remove a non-empty
+        # staging database" error, since there will be position fixes left in
+        # the database when the process exits.)
         #
-        # The message number from RabbitMQ is saved for publish
-        # confirmation processing.
-        message_number = self._complete_trajectory(source_id)
+        # The message number from RabbitMQ is saved for publish confirmation
+        # processing.
+        payloads = []
+        for source_id in source_ids:
+            # Retrieve all position fixes from database as data frame.
+            fixes = self.db.get_trajectory(source_id)
+            if len(fixes) == 0:
+                continue
+
+            # Build trajectory payload to send to ingester.
+            payloads.append(Trajectory.build(self.source, source_id, fixes))
+
+        # Send trajectory payload out over RabbitMQ, returning message number
+        # for ACK/NACK processing.
+        message_number = self.rmq.send('trajectory', TrajectoryBatch(payloads))
         if message_number is not None:
-            self._pending_rmq_messages[message_number] = source_id
+            self._pending_rmq_messages[message_number] = source_ids
 
     def _identify_complete_trajectories(self, final: bool = False) -> list[str]:
         if final:
@@ -264,16 +280,3 @@ class Processor:
             # source-dependent data lag) as the reference.
             horizon = datetime.now() - self.data_lag - self.completion_delay
         return self.db.complete_source_ids(horizon)
-
-    def _complete_trajectory(self, source_id: str) -> int | None:
-        # Retrieve all position fixes from database as data frame.
-        fixes = self.db.get_trajectory(source_id)
-        if len(fixes) == 0:
-            return None
-
-        # Build trajectory payload to send to ingester.
-        payload = Trajectory.build(self.source, source_id, fixes)
-
-        # Send trajectory payload out over RabbitMQ, returning message number
-        # for ACK/NACK processing.
-        return self.rmq.send('trajectory', payload)
