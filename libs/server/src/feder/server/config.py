@@ -112,33 +112,42 @@ class Config:
                 DataSource.OPENSKY,
                 DataSource.OPENSKY_STATE_VECTORS
         ]:
-            if self._source_enabled[s]:
-                api_key = self._get_str(['source', str(s)], 'api-key')
-                if api_key is not None:
-                    self._source_credentials[s] = dict(api_key=api_key)
+            api_key = self._get_str(['source', str(s)], 'api-key', missing_ok=True)
+            if api_key is not None:
+                self._source_credentials[s] = dict(api_key=api_key)
 
-        if self._source_enabled[DataSource.FLIGHTAWARE]:
-            username = self._get_str(['source', DataSource.FLIGHTAWARE], 'username')
-            password = self._get_str(['source', DataSource.FLIGHTAWARE], 'password')
-            if username is not None and password is not None:
-                self._source_credentials[DataSource.FLIGHTAWARE] = dict(
-                    username=username, password=password
-                )
+        username = self._get_str(
+            ['source', str(DataSource.FLIGHTAWARE)], 'username', missing_ok=True
+        )
+        password = self._get_str(
+            ['source', str(DataSource.FLIGHTAWARE)], 'password', missing_ok=True
+        )
+        if username is not None and password is not None:
+            self._source_credentials[DataSource.FLIGHTAWARE] = dict(
+                username=username, password=password
+            )
 
     def _get(
-            self, table: list[str], key: str, default: Any | None = None
+            self,
+            table: list[str], key: str,
+            default: Any | None = None,
+            missing_ok: bool = False
     ) -> Any:
         try:
             current = self.raw
             for i in table:
                 current = current[i]
             value = current[key]
-            if value is None:
-                raise KeyError('missing')
-            return value
+            if value is not None:
+                return value
+            if missing_ok:
+                return None
+            raise KeyError('missing')
         except KeyError:
             if default is not None:
                 return default
+            if missing_ok:
+                return None
             raise KeyError(
                 f'configuration key "{".".join(table)}/{key}" missing'
             )
@@ -149,12 +158,17 @@ class Config:
         )
 
     def _get_str(
-            self, table: str | list[str], key: str, default: str | None = None
-    ) -> str:
+            self,
+            table: str | list[str], key: str,
+            default: str | None = None,
+            missing_ok: bool = False
+    ) -> str | None:
         table = _as_list(table)
-        value = self._get(table, key, default)
+        value = self._get(table, key, missing_ok, default)
         if isinstance(value, str):
             return value
+        if missing_ok and value is None:
+            return None
         self._type_error(table, key)
 
     def _get_int(

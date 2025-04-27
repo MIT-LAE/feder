@@ -61,10 +61,9 @@ class WritableDB(DB):
     def add_trajectory(
             self,
             traj: Trajectory,
-            cursor: sqlite3.Cursor | None = None
+            commit: bool = True
     ) -> int:
-        commit = cursor is not None
-        cur = self.cursor() if cursor is None else cursor
+        cur = self.cursor()
 
         cur.execute(
             """INSERT INTO trajectories
@@ -99,10 +98,9 @@ class WritableDB(DB):
     def delete_trajectory(
             self,
             traj: Trajectory,
-            cursor: sqlite3.Cursor | None = None
+            commit: bool = True
     ) -> None:
-        commit = cursor is not None
-        cur = self.cursor() if cursor is None else cursor
+        cur = self.cursor()
 
         cur.execute(
             """DELETE FROM trajectories

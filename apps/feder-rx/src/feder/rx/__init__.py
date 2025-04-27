@@ -4,6 +4,7 @@ import os
 from queue import PriorityQueue
 import signal
 import sys
+import threading
 
 import click
 
@@ -83,56 +84,73 @@ def run(
         file_cache: str | None,
         source: str, glob_args: tuple[str, ...]
 ) -> None:
+    logging_setup(debug)
+
+    # Process configuration file.
+    cfg = Config(config)
+
+    # Are we running in historical mode or live mode? Historical mode means
+    # that we need to provide information about the historical period to
+    # process. That usually means a start and end timestamp, but for a
+    # file-based receiver like the CSV processor, it will be a list of file
+    # globs.
+    if (start_time is None) != (end_time is None):
+        logger.critical(
+            'must provide neither or both of "start-time" and "end-time"'
+        )
+        sys.exit(1)
+    if len(glob_args) != 0 and start_time is not None:
+        logger.critical(
+            'either give start and end times OR list of file globs'
+        )
+        sys.exit(1)
+    if start_time is not None:
+        try:
+            start_time = datetime.fromisoformat(start_time)
+        except ValueError:
+            logger.critical('invalid ISO 8601 time for "start-time"')
+            sys.exit(1)
+        try:
+            end_time = datetime.fromisoformat(end_time)
+        except ValueError:
+            logger.critical('invalid ISO 8601 time for "end-time"')
+            sys.exit(1)
+    if file_cache is not None:
+        if not os.path.exists(file_cache):
+            logger.critical('provided file cache directory does not exist')
+            sys.exit(1)
+    historical = len(glob_args) != 0 or start_time is not None
+
+    # Check that the source is enabled for live updates (signalled by not
+    # passing in any arguments to run as a historical update process).
+    # TODO: Might be better not to do this, but use systemd's enable/disable
+    # functionality?
+    if not historical and not cfg.enabled(source):
+        logger.critical('source "%s" not enabled for live updates', source)
+        sys.exit(1)
+
+    # For historical processes, make a unique name.
+    name = source
+    if historical:
+        name += f'-{os.getpid()}'
+
+    # Set up the command queue used to decouple the data source handler and
+    # trajectory completion and RabbitMQ connection handling. We need to
+    # handle all these things in parallel. For the CSV source, access to the
+    # "source" is synchronous and we control the rate at which data is sent to
+    # the ingester, but for the other sources, we have less control over the
+    # rate that data comes in so we need some mechanism to decouple the source
+    # handling from the communication with the ingester via RabbitMQ. We use a
+    # queue to do this.
+    command_queue = PriorityQueue(5)
+
     try:
-        logging_setup(debug)
-
-        # Process configuration file.
-        cfg = Config(config)
-
-        # Are we running in historical mode or live mode? Historical mode means
-        # that we need to provide information about the historical period to
-        # process. That usually means a start and end timestamp, but for a
-        # file-based receiver like the CSV processor, it will be a list of file
-        # globs.
-        if (start_time is None) != (end_time is None):
-            logger.critical(
-                'must provide neither or both of "start-time" and "end-time"'
-            )
-            sys.exit(1)
-        if len(glob_args) != 0 and start_time is not None:
-            logger.critical(
-                'either give start and end times OR list of file globs'
-            )
-            sys.exit(1)
-        if start_time is not None:
-            try:
-                start_time = datetime.fromisoformat(start_time)
-            except ValueError:
-                logger.critical('invalid ISO 8601 time for "start-time"')
-                sys.exit(1)
-            try:
-                end_time = datetime.fromisoformat(end_time)
-            except ValueError:
-                logger.critical('invalid ISO 8601 time for "end-time"')
-                sys.exit(1)
-        if file_cache is not None:
-            if not os.path.exists(file_cache):
-                logger.critical('provided file cache directory does not exist')
-                sys.exit(1)
-        historical = len(glob_args) != 0 or start_time is not None
-
-        # Check that the source is enabled for live updates (signalled by not
-        # passing in any arguments to run as a historical update process).
-        # TODO: Might be better not to do this, but use systemd's enable/disable
-        # functionality?
-        if not historical and not cfg.enabled(source):
-            logger.critical('source "%s" not enabled for live updates', source)
-            sys.exit(1)
-
-        # For historical processes, make a unique name.
-        name = source
-        if historical:
-            name += f'-{os.getpid()}'
+        # For exception handling...
+        db = None
+        rmq = None
+        data_source = None
+        completion_timer_thread = None
+        ingester_liveness = None
 
         # Connect to staging database for current source. For historical
         # processing jobs, a unique name is used for the staging database, since
@@ -145,16 +163,6 @@ def run(
         # (mostly for debugging).
         if purge_staging:
             db.purge()
-
-        # Set up the command queue used to decouple the data source handler and
-        # trajectory completion and RabbitMQ connection handling. We need to
-        # handle all these things in parallel. For the CSV source, access to the
-        # "source" is synchronous and we control the rate at which data is sent to
-        # the ingester, but for the other sources, we have less control over the
-        # rate that data comes in so we need some mechanism to decouple the source
-        # handling from the communication with the ingester via RabbitMQ. We use a
-        # queue to do this.
-        command_queue = PriorityQueue(5)
 
         # Set up RabbitMQ handler.
         name=f'rx-{name}'
@@ -189,7 +197,8 @@ def run(
 
         # Set up ingester liveness checking.
         ingester_liveness = LivenessChecker(
-            rmq, 'ingester', command_queue, IngesterStatusCommand
+            rmq, 'ingester', command_queue, IngesterStatusCommand,
+            ok_check_interval=1
         )
 
         # Start RabbitMQ handler (waits for connection to RabbitMQ broker and
@@ -204,7 +213,6 @@ def run(
         # Signal handling for tidy cleanup.
         processor = None
         def stop(_signum, _frame):
-            print('STOP')
             if processor is None:
                 return
             processor.immediate_stop()
@@ -225,34 +233,42 @@ def run(
 
             # Process messages from queue.
             processor = Processor(
-                cfg, data_source.SOURCE, historical, db, command_queue,
+                cfg, data_source.SOURCE, name, historical, db, command_queue,
                 rmq, rpc_server[0] if len(rpc_server) > 0 else None,
-                data_source.control
+                data_source.control, ingester_liveness.ok_check_interval
             )
             processor.run()
-            print('processor.run returned')
     except Exception as e:
         logger.exception('fatal exception: %s', e)
     finally:
         # If we get here, the process is stopped, so we need to clean up the
         # worker threads and RabbitMQ.
-        data_source.stop()
+        if data_source is not None:
+            data_source.stop()
         if completion_timer_thread is not None:
             completion_timer_thread.stop()
-        ingester_liveness.stop()
-        rmq.stop()
+        if ingester_liveness is not None:
+            ingester_liveness.stop()
+        if rmq is not None:
+            rmq.stop()
 
         # Drain the command queue to prevent any threads that want to write to
         # it getting stuck.
         while not command_queue.empty():
             command_queue.get()
 
-        cur = db.conn.cursor()
-        remaining = [
-            t[0] for t in
-            cur.execute('SELECT DISTINCT source_id FROM fixes ORDER BY source_id').fetchall()
-        ]
-        print('# remaining at end =', len(remaining))
+        if db is not None:
+            cur = db.conn.cursor()
+            remaining = [
+                t[0] for t in
+                cur.execute('SELECT DISTINCT source_id FROM fixes ORDER BY source_id').fetchall()
+            ]
+            print('# remaining at end =', len(remaining))
+
+        print('THREADS:')
+        for t in threading.enumerate():
+            print(t)
+
 
 if __name__ == '__main__':
     run()

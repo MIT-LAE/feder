@@ -103,13 +103,15 @@ class TrajectoryBatch(Message):
     MESSAGE_TAG = 'T'
 
     trajectories: list[Trajectory]
-    sent_at: datetime
+    source: str
+    trajectory_count: int
 
     def _pack(self, packer: Packer):
         packer('>B', len(self.trajectories))
         for traj in self.trajectories:
             traj.model.pack(packer=packer)
-        packer('>L', int(self.sent_at.timestamp()))
+        packer.str(self.source)
+        packer('>L', self.trajectory_count)
 
     @classmethod
     def _unpack(cls, unpacker: Unpacker) -> Self:
@@ -123,7 +125,8 @@ class TrajectoryBatch(Message):
                 )
                 for i in range(ntrajs)
             ],
-            sent_at=datetime.fromtimestamp(unpacker('>L'))
+            source=unpacker.str(),
+            trajectory_count=unpacker('>L')
         )
 
 

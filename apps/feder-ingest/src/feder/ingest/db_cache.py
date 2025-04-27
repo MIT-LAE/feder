@@ -40,8 +40,7 @@ class DBCache:
         conn = self._connections.get(ref_date, WritableDB(self.data_dir, ref_date))
         self._connections[ref_date] = conn
         if len(self._connections) > self.connection_cache_size:
-            _, old_conn = self._connections.popitem(last=False)
-            old_conn.close()
+            self._connections.popitem(last=False)
         return conn
 
     def close(self) -> None:
@@ -50,7 +49,7 @@ class DBCache:
             conn.close()
         self._connections.clear()
 
-    def add_trajectory(self, traj: Trajectory) -> int:
+    def add_trajectory(self, traj: Trajectory) -> set[WritableDB]:
         # Add a trajectory to the appropriate database. "Appropriate" means
         # the database file for the date on which the timestamp of the first
         # point in the trajectory falls.
@@ -83,6 +82,8 @@ class DBCache:
         # forge bravely on. Things are simplified somewhat by allowing only
         # the ingester to modify the database files, but it's still a little
         # awkward.
+
+        touched = set()
 
         # Database connections for the day of the first point in the
         # trajectory and the day before and day after.
@@ -128,14 +129,16 @@ class DBCache:
         # The trajectory to be merged spans multiple database files. Nothing
         # we can do but handle that like the barbarians we are.
         if traj_m1 is not None:
-            db_m1.delete_trajectory(traj_m1)
+            db_m1.delete_trajectory(traj_m1, commit=False)
+            touched.add(db_m1)
             # # TIME: 40 ms (1-2%)
             # tic0 = tic1
             # tic1 = time.perf_counter()
             # self._dt[5] += tic1 - tic0
             # self._n[5] += 1
         if traj_p1 is not None:
-            db_p1.delete_trajectory(traj_p1)
+            db_p1.delete_trajectory(traj_p1, commit=False)
+            touched.add(db_p1)
             # # TIME: 0 ms (didn't happen)
             # tic0 = tic1
             # tic1 = time.perf_counter()
@@ -144,11 +147,10 @@ class DBCache:
 
         # The rest of what we need to do operates on a single database file,
         # we *can* do it in a single transaction.
-        cur = db_0.cursor()
         if traj_0 is not None:
-            db_0.delete_trajectory(traj_0, cursor=cur)
-        new_id = db_0.add_trajectory(traj, cursor=cur)
-        db_0.commit()
+            db_0.delete_trajectory(traj_0, commit=False)
+        db_0.add_trajectory(traj, commit=False)
+        touched.add(db_0)
         # # TIME: 6 ms
         # tic0 = tic1
         # tic1 = time.perf_counter()
@@ -162,4 +164,4 @@ class DBCache:
         #     print('DB-STATS: ' + ', '.join(f'{dt} ({n})' for dt, n in zip(self._dt, self._n)))
         #     self._dt = [0] * self._nstats
         #     self._n = [0] * self._nstats
-        return new_id
+        return touched

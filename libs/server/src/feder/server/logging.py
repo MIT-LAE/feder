@@ -1,4 +1,5 @@
 import logging
+from math import trunc
 
 
 def logging_setup(debug: bool = False) -> None:
@@ -13,8 +14,9 @@ def logging_setup(debug: bool = False) -> None:
     logging.captureWarnings(True)
 
 
-def log_counts(logger, name, old_count, increment, scale):
+def log_counts(logger, name, old_count, increment, digits):
     new_count = old_count + increment
-    if new_count // 10**scale != old_count // 10**scale:
-        logger.info('%s ' + name, round(new_count, -scale))
+    scale = 10**digits
+    if new_count // scale != old_count // scale:
+        logger.info('%s ' + name, trunc(new_count / scale) * scale)
     return new_count

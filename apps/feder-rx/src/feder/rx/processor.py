@@ -28,23 +28,30 @@ class Processor:
     DT_REAL_FOR_COMPLETIONS = timedelta(minutes=15)
     TRAJECTORY_BATCH_SIZE = 100
     SLOW_INGESTER_INTERVAL = timedelta(seconds=5)
+    INGESTER_AVERAGING_SPAN = 5
+    MAX_OUTSTANDING_TRAJECTORIES = 500
 
     def __init__(
             self,
-            config: Config, source: DataSource, historical: bool,
+            config: Config, source: DataSource, name: str, historical: bool,
             db: DB, command_queue: PriorityQueue, rmq: RMQ,
-            liveness_endpoint: str | None, source_control: ThreadControl
+            liveness_endpoint: str | None, source_control: ThreadControl,
+            ingester_liveness_interval: int
     ):
         self.config = config
         self.source = source
+        self.name = name
         self.historical = historical
         self.db = db
         self.command_queue = command_queue
         self.rmq = rmq
         self.data_lag = self.config.data_lag(self.source)
+        if self.historical:
+            self.data_lag = timedelta(0)
         self.completion_delay = self.config.completion_delay(self.source)
         self.liveness_endpoint = liveness_endpoint
         self.source_control = source_control
+        self.ingester_liveness_interval = ingester_liveness_interval
 
         self._trajectories = []
         self._done = False
@@ -58,7 +65,18 @@ class Processor:
         self._fix_time_last_completion = None
         self._real_time_last_completion = datetime.now()
         self._trajectory_count = 0
-        self._last_sent_time = datetime.now()
+
+        # Flow control: used only for historical processing. For historical
+        # jobs, the receiver can process a *lot* of data very quickly (it
+        # often has access to data directly in local files and it uses an
+        # in-memory scratch database), so it can flood the ingester with data.
+        # That means that we need flow control mechanisms. For live jobs, the
+        # data flow is more moderate.
+        self._ingester_trajectory_counts = []
+        self._ingester_ref_times = []
+        self._trajectory_tranche_size = 1000
+        self._trajectory_tranche_progress = 0
+        self._trajectory_tranche_waiting = False
 
     def run(self):
         # Process messages from command queue.
@@ -75,7 +93,7 @@ class Processor:
                 self._done = True
                 continue
 
-            if len(self._trajectories) != 0:
+            if len(self._trajectories) != 0 and self.source_control.is_running:
                 self._send_trajectories(
                     self._trajectories[:self.TRAJECTORY_BATCH_SIZE]
                 )
@@ -99,6 +117,8 @@ class Processor:
 
     def immediate_stop(self):
         self._immediate_stop.set()
+        if self.command_queue.empty():
+            self.command_queue.put('STOP')
 
     def _ok_to_complete(self):
         # If there have been a lot of fixes since the last completion, we can
@@ -147,7 +167,7 @@ class Processor:
 
             case SourceErrorCommand(message, stop):
                 # Log errors and stop if requested.
-                logger.error('Source error: %s', message)
+                logger.error('source error: %s', message)
                 if stop:
                     self._done = True
 
@@ -159,19 +179,11 @@ class Processor:
                 self._complete_trajectories()
 
             case IngesterStatusCommand(live, info):
-                run_source = True
-                if not live:
-                    logger.info('Ingester has failed!')
-                    run_source = False
-                else:
-                    last_batch_time = info.get('last_batch_time', datetime.now())
-                    if self._last_sent_time - last_batch_time > self.SLOW_INGESTER_INTERVAL:
-                        logger.info('Waiting for ingester...')
-                        run_source = False
-                if run_source:
+                if self._handle_ingester_status(live, info):
                     self.source_control.resume()
                 else:
                     self.source_control.pause()
+
 
             case RMQCommand() as cmd:
                 match cmd.message:
@@ -201,6 +213,57 @@ class Processor:
                         logger.warning(
                             'unexpected RMQ message "%s"', cmd.message
                         )
+
+    def _handle_ingester_status(self, live, info) -> bool:
+        if not live:
+            logger.info('ingester has failed!')
+            return False
+
+        if not self.historical:
+            return True
+
+        # Flow control for historical jobs follows...
+
+        # If the ingester hasn't ingested anything at all yet, just continue.
+        if info['last_ingested'] == 0:
+            return True
+
+        # Collect a rolling sequence of trajectory counts and times for
+        # calculating the moving average ingestion rate.
+        if len(self._ingester_trajectory_counts) > self.INGESTER_AVERAGING_SPAN:
+            self._ingester_trajectory_counts = self._ingester_trajectory_counts[1:]
+            self._ingester_ref_times = self._ingester_ref_times[1:]
+        self._ingester_trajectory_counts.append(info['last_ingested'])
+        self._ingester_ref_times.append(datetime.now())
+
+        # Calculate the moving average ingestion rate.
+        if len(self._ingester_trajectory_counts) > 1:
+            dtraj = self._ingester_trajectory_counts[-1] - self._ingester_trajectory_counts[0]
+            dt = (self._ingester_ref_times[-1] - self._ingester_ref_times[0]).total_seconds()
+            ingester_rate = dtraj / dt
+        else:
+            # Slow start if we don't have enough data to calculate a rate yet.
+            ingester_rate = 50
+
+        # Work out how far the ingester is behind and if it's too far, pause
+        # the data source.
+        delta = self._trajectory_count - self._ingester_trajectory_counts[-1]
+        if delta > self.MAX_OUTSTANDING_TRAJECTORIES:
+            logger.info(
+                'ingester delta too great: %s - %s = %s - waiting...',
+                self._trajectory_count, self._ingester_trajectory_counts[-1], delta
+            )
+            return False
+
+        # If the ingester is not too far behind, we can send trajectories.
+        # Calculate a good number to send based on the ingestion rate.
+        self._trajectory_tranche_size = round(
+            int(5 * ingester_rate * self.ingester_liveness_interval), -2
+        )
+        self._trajectory_tranche_progress = 0
+        self._trajectory_tranche_waiting = False
+
+        return True
 
     def _process_ack_nack(self, delivery_tag: int, delete_trajectories: bool):
         if delivery_tag in self._pending_rmq_messages:
@@ -233,6 +296,19 @@ class Processor:
             cmd.headings, cmd.on_grounds
         )
         return len(cmd.source_ids)
+
+    def _trajectory_tranche_control(self, ntrajs):
+        self._trajectory_tranche_progress += ntrajs
+        if (
+            self._trajectory_tranche_progress >= self._trajectory_tranche_size and
+            not self._trajectory_tranche_waiting
+        ):
+            self._trajectory_tranche_waiting = True
+            logger.info(
+                'trajectory tranche filled (%s) - waiting...',
+                self._trajectory_tranche_progress
+            )
+            self.source_control.pause()
 
     def _source_done(self, latest_time: datetime):
         # Run a final trajectory completion cycle and mark that we
@@ -269,12 +345,15 @@ class Processor:
 
         # Send trajectory payload out over RabbitMQ, returning message number
         # for ACK/NACK processing.
-        self._last_sent_time = datetime.now()
         message_number = self.rmq.send(
-            'trajectory', TrajectoryBatch(payloads, self._last_sent_time)
+            'trajectory', TrajectoryBatch(
+                trajectories=payloads,
+                source=self.name,
+                trajectory_count=self._trajectory_count)
         )
         if message_number is not None:
             self._pending_rmq_messages[message_number] = source_ids
+        self._trajectory_tranche_control(len(payloads))
 
     def _identify_complete_trajectories(self, final: bool = False) -> list[str]:
         if final:

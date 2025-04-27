@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 import os
 from typing import Generator
 
-from feder.common import DB, QueryType, Trajectory
+from feder.common import DB, QueryType, Trajectory, DataSource
 
 
 def get_flights(time1: datetime, time2: datetime) -> list[Trajectory]:
@@ -14,6 +14,7 @@ def flight_query(
     min_lat: float | None = None, max_lat: float | None = None,
     min_lon: float | None = None, max_lon: float | None = None,
     min_alt: float | None = None, max_alt: float | None = None,
+    source: DataSource | None = None,
     query_type: QueryType = QueryType.CROSSES
 ) -> Generator[Trajectory, None, None]:
     data_dir = os.environ.get('FEDER_DATA_DIR')
@@ -34,6 +35,6 @@ def flight_query(
         for traj in db.query_flights(
                 min_time, max_time, min_lat, max_lat,
                 min_lon, max_lon, min_alt, max_alt,
-                query_type
+                source, query_type
         ):
             yield traj

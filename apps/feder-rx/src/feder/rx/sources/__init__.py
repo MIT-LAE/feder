@@ -59,6 +59,7 @@ class Source(Thread):
 
     def stop(self):
         self.stopped = True
+        self.control.resume()
         self._wait_finished.set()
 
     def wait_for(self, t: datetime) -> bool:
@@ -146,33 +147,16 @@ class FileSource(Source):
 class DateSource(Source):
     DATE_RESOLUTION = None
 
-    def __init__(self, config: 'Config', queue: Queue, *args: str):
-        super().__init__(config, queue, *args)
-        if len(args) != 0 and len(args) != 2:
-            logger.critical(
-                'date-based source "%s" runs either in live mode '
-                'or needs a start and end timestamp',
-                str(self.SOURCE)
-            )
-            sys.exit(1)
+    def __init__(self, config: 'Config', queue: Queue, *args, **kwargs):
+        super().__init__(config, queue, *args, **kwargs)
 
-        self.historical = len(args) == 2
+        self.historical = self.start_time is not None
         if self.historical:
-            try:
-                self.start_time = round_time(
-                    datetime.fromisoformat(self.args[0]),
-                    self.DATE_RESOLUTION
-                )
-                self.end_time = round_time(
-                    datetime.fromisoformat(self.args[1]),
-                    self.DATE_RESOLUTION
-                )
-                if self.start_time >= self.end_time:
-                    raise ValueError('end time has to be after start time')
-            except Exception:
-                logger.critical(
-                    'invalid start or end time supplied '
-                    'for date-based source "%s"',
-                    str(self.SOURCE)
-                )
-                sys.exit(1)
+            self.start_time = round_time(
+                self.start_time, self.DATE_RESOLUTION
+            )
+            self.end_time = round_time(
+                self.end_time, self.DATE_RESOLUTION
+            )
+            if self.start_time > self.end_time:
+                raise ValueError('start time cannot be later that end time')

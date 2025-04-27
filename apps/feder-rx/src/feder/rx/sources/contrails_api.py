@@ -31,7 +31,7 @@ class ContrailsAPISource(DateSource):
     DATE_INTERVAL = timedelta(hours=1)
 
     def __init__(self, config: Config, queue: PriorityQueue, *args, **kwargs):
-        super().__init__(config, queue, *args)
+        super().__init__(config, queue, *args, **kwargs)
         self.api_key = config.credentials(self.SOURCE)['api_key']
         self._clear()
 
@@ -61,21 +61,38 @@ class ContrailsAPISource(DateSource):
         else:
             self.run_live()
 
-    def retrieve_error(self, t: datetime, retry: bool = False) -> None:
-        self.queue.put(SourceErrorCommand(
-            f'failed to retrieve ADS-B Parquet file for {_format_time(t)}' +
-            (' (waiting 5 minutes to try again...)' if retry else '')
-        ))
+    def retrieve_error(
+            self, t: datetime, status_code: int, retry: bool = False
+    ) -> bool:
+        match status_code:
+            case requests.codes.unauthorized:
+                self.queue.put(SourceErrorCommand(
+                    message='invalid credentials for Contrails API',
+                    stop=True
+                ))
+                return False
+            case _:
+                self.queue.put(SourceErrorCommand(
+                    message=(
+                        f'failed to retrieve ADS-B Parquet file for {_format_time(t)}'
+                        (' (waiting 5 minutes to try again...)' if retry else '')
+                    ),
+                    stop=not retry
+                ))
+                return not retry
 
     def run_historical(self):
         request_time = self.start_time
         fix_count = 0
         latest_time = datetime(1, 1, 1)
         while request_time <= self.end_time:
-            df = self._retrieve(request_time)
-            if df is None:
-                self.retrieve_error(request_time)
+            df_or_status = self._retrieve(request_time)
+            if isinstance(df_or_status, int):
+                # TODO: CHECK RETURN VALUE AND WAIT FOR FIVE MINUTES IF WE'RE
+                # NOT QUITTING RIGHT AWAY.
+                self.retrieve_error(request_time, df_or_status)
                 break
+            df = df_or_status
             for cmd in self.process_df(df):
                 if self.stopped:
                     return
@@ -97,9 +114,11 @@ class ContrailsAPISource(DateSource):
     def process_df(self, df) -> Generator[Command, None, None]:
         # Helper for value conversion.
         def n(x, xform):
-            return None if np.isnan(x) or x == '' else xform(x)
+            return None if pd.isna(x) or x == '' else xform(x)
 
-        for tup in df.itertuples(index=False):
+        # Ignore records with no callsign!
+        # NOTE: Contrails API returns rows in *reverse* time order...
+        for tup in df[~df.callsign.isna()][::-1].itertuples(index=False):
             # One source position command per row.
             self._source_ids.append(tup.flight_id)
             self._transponder_ids.append(tup.icao_address)
@@ -147,18 +166,21 @@ class ContrailsAPISource(DateSource):
                 break
 
             # Try retrieving the next file.
-            df = self._retrieve(retrieval_time)
+            df_or_status = self._retrieve(retrieval_time)
 
             # If the retrieval failed, we try again for the same file in 5
             # minutes.
-            if df is None:
+            if isinstance(df_or_status, int):
                 if retries >= 5:
                     self.queue.put(SourceErrorCommand(
-                       'failed to retrieve data after five attempts: exiting'
+                        message='stopping after five retrieval attempts',
+                        stop=True
                     ))
                     break
 
-                self.retrieve_error(retrieval_time, retry=True)
+                # retrieve_error returns False if the error is unrecoverable.
+                if not self.retrieve_error(retrieval_time, retry=True):
+                    break
                 if self.wait_for(datetime.now() + timedelta(minutes=5)):
                     break
                 retries += 1
@@ -175,7 +197,7 @@ class ContrailsAPISource(DateSource):
         # retries.
         self.queue.put(SourceErrorCommand('unknown error', stop=True))
 
-    def _retrieve(self, t: datetime) -> pd.DataFrame | None:
+    def _retrieve(self, t: datetime) -> pd.DataFrame | int:
         # ISO 8601 (UTC)
         tstr = _format_time(t)
 
@@ -200,8 +222,12 @@ class ContrailsAPISource(DateSource):
                 'HTTP request to Contrails API failed (%s): %s',
                 r.status_code, r.reason
             )
-            return None
+            return r.status_code
 
+        # if self.file_cache is not None:
+        #     # TODO: Save retrieved file to cache and read.
+        #     ...
+        # else:
         return pd.read_parquet(BytesIO(r.content))
 
 

@@ -52,8 +52,8 @@ class LivenessChecker(Thread):
             name: str,
             out_queue: Queue,
             status_command: type,
-            timeout_interval: int = 5,
-            ok_check_interval: int = 3,
+            timeout_interval: int = 10,
+            ok_check_interval: int = 5,
             down_check_interval: int = 1,
             *args, **kwargs
     ):
