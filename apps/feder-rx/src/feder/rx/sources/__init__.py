@@ -5,7 +5,6 @@ import itertools
 import logging
 import os
 from queue import Queue, Full
-import sys
 from threading import Thread, Event
 from typing import Generator, Any
 
@@ -24,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 class Source(Thread):
-    SOURCE: DataSource | None = None
-    NAME: str | None = None
+    SOURCE: DataSource = None  # type: ignore
+    NAME: str = None  # type: ignore
     BATCH_SIZE: int = 1
 
     def __init__(
@@ -52,7 +51,7 @@ class Source(Thread):
         self.stopped = False
 
     @classmethod
-    def name(cls):
+    def source_name(cls):
         if cls.NAME is not None:
             return cls.NAME
         return str(cls.SOURCE)
@@ -79,10 +78,14 @@ class Source(Thread):
             except Full:
                 pass
 
-    def cached_file(self, name) -> str | None:
+    def cache_path(self, name: str) -> str:
+        assert self.file_cache is not None
+        return os.path.join(self.file_cache, os.path.basename(name))
+
+    def cached_file(self, name: str) -> str | None:
         if self.file_cache is None:
             return None
-        p = os.path.join(self.file_cache, os.path.basename(name))
+        p = self.cache_path(name)
         return p if os.path.exists(p) else None
 
     @abstractmethod
@@ -145,7 +148,7 @@ class FileSource(Source):
 
 
 class DateSource(Source):
-    DATE_RESOLUTION = None
+    DATE_RESOLUTION: str = None  # type: ignore
 
     def __init__(self, config: 'Config', queue: Queue, *args, **kwargs):
         super().__init__(config, queue, *args, **kwargs)

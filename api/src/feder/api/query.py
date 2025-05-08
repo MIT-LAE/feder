@@ -5,8 +5,11 @@ from typing import Generator
 from feder.common import DB, QueryType, Trajectory, DataSource
 
 
-def get_flights(time1: datetime, time2: datetime) -> list[Trajectory]:
-    return list(flight_query(min_time=time1, max_time=time2))
+def get_flights(
+        time1: datetime, time2: datetime,
+        source: DataSource | None = None
+) -> list[Trajectory]:
+    return list(flight_query(min_time=time1, max_time=time2, source=source))
 
 
 def flight_query(

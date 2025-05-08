@@ -114,8 +114,11 @@ class DB:
 
     def get_trajectory(self, source_id: str) -> list[Fix]:
         sql = """
-           SELECT transponder_id, time, orig, dest, callsign,
-             aircraft_type, lat, lon, alt, alt_gnss, heading, on_ground
+           SELECT transponder_id, time,
+                  orig, dest,
+                  callsign, aircraft_type,
+                  lat, lon, alt, alt_gnss,
+                  heading, on_ground
              FROM fixes WHERE source_id = ? ORDER BY time
         """
         cur = self.conn.cursor()
@@ -124,7 +127,7 @@ class DB:
                 transponder_id=row[0], time=row[1],
                 orig=row[2], dest=row[3],
                 callsign=row[4], aircraft_type=row[5],
-                lat=row[6], lon=row[7], alt=row[6], alt_gnss=row[8],
+                lat=row[6], lon=row[7], alt=row[8], alt_gnss=row[9],
                 heading=row[10], on_ground=row[11]
             )
             for row in cur.execute(sql, (source_id,)).fetchall()

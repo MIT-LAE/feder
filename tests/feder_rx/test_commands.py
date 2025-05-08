@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from feder.rx.commands import (
-    CompleteCommand, IngesterStatusCommand,
+    IngesterStatusCommand,
     SourceDoneCommand, SourceErrorCommand, SourcePositionCommand,
     RMQCommand
 )
@@ -22,7 +22,6 @@ def test_command_ordering():
     source_error = SourceErrorCommand('this is an error', stop=True)
     source_done = SourceDoneCommand(datetime.now())
     ingester_status = IngesterStatusCommand(live=True)
-    complete = CompleteCommand()
     rmq_ack = RMQCommand(message=rmq.AckMessage(delivery_tag=2))
     rmq_nack = RMQCommand(message=rmq.NackMessage(delivery_tag=1))
     rmq_data = RMQCommand(message=rmq.DataMessage(
@@ -44,7 +43,7 @@ def test_command_ordering():
 
     commands = sorted([
         source_pos, source_error, source_done,
-        ingester_status, complete,
+        ingester_status,
         rmq_ack, rmq_nack, rmq_data, rmq_rpc, rmq_rpc_error
     ])
 
@@ -54,7 +53,7 @@ def test_command_ordering():
         rmq_nack, rmq_ack, rmq_rpc_error,
 
         # Medium priority
-        complete, source_pos, rmq_rpc,
+        source_pos, rmq_rpc,
 
         # Low priority
         source_done, rmq_data

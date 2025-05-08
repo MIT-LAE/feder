@@ -4,7 +4,7 @@ import functools
 import logging
 from queue import PriorityQueue
 from threading import Thread, Event, Timer
-from typing import Callable, Any, Self
+from typing import Callable, Any
 import uuid
 
 from pika import (
@@ -39,6 +39,7 @@ class Message:
     class Priority(Enum):
         # Order priorities to match the way that Python's queue.PriorityQueue
         # works: lowest priority value comes off the queue first.
+        MAXIMUM = auto()
         HIGH = auto()
         MEDIUM = auto()
         LOW = auto()
@@ -126,7 +127,7 @@ class RPCEndpoint:
     response_class: type
 
 
-type RPCCallback = Callable[[str, type], None]
+type RPCCallback = Callable[[str, Any], None]
 RPCErrorCallback = Callable[[str, str], None]
 
 
@@ -335,7 +336,7 @@ class RMQ(Thread):
             raise ValueError('bad message type')
         try:
             packed_message = message.pack()
-        except Exception as exc:
+        except Exception:
             raise ValueError('message type does not support packing')
 
         # Message number used for publish confirmation: returned to caller for
@@ -344,6 +345,7 @@ class RMQ(Thread):
 
         # Thread-safe invocation of method to do actual message sending within
         # I/O loop.
+        assert self._connection is not None
         self._connection.ioloop.add_callback_threadsafe(
             functools.partial(
                 self._send, exchange, packed_message, persistent
@@ -357,7 +359,7 @@ class RMQ(Thread):
             payload: Any,
             callback: RPCCallback,
             error_callback: RPCErrorCallback | None = None,
-            timeout: int = None
+            timeout: int | None = None
     ) -> str:
         """Send an RPC request Protocol Buffers message to an endpoint."""
 
@@ -395,6 +397,7 @@ class RMQ(Thread):
 
         # Thread-safe invocation of method to do actual message sending within
         # I/O loop.
+        assert self._connection is not None
         self._connection.ioloop.add_callback_threadsafe(
             functools.partial(
                 self._send_rpc, endpoint, packed_payload, correlation_id
@@ -447,6 +450,7 @@ class RMQ(Thread):
 
         # Thread-safe invocation of method to do actual message sending within
         # I/O loop.
+        assert self._connection is not None
         self._connection.ioloop.add_callback_threadsafe(
             functools.partial(
                 self._rpc_reply, request_message, packed_reply_message
@@ -863,7 +867,7 @@ class RMQ(Thread):
     #
     #----------------------------------------------------------------------------
 
-    def _on_message(self, consumer: Consumer, _ch, method, props, body):
+    def _on_message(self, consumer: Consumer, _ch, method, _props, body):
         assert self._channel is not None
 
         # All messages are passed using a message class hierarchy that knows
@@ -911,6 +915,7 @@ class RMQ(Thread):
                     f'incorrect RPC request class "{type(message)}"'
                 )
         except Exception as err:
+            assert self._rpc_channel is not None
             self._rpc_channel.basic_nack(method.delivery_tag)
             self.out_queue.put(self._wrap(
                 RPCErrorMessage(
@@ -954,6 +959,7 @@ class RMQ(Thread):
                     f'incorrect RPC response class "{type(response)}"'
                 )
         except Exception as err:
+            assert self._rpc_channel is not None
             self._rpc_channel.basic_nack(method.delivery_tag)
             if rpc_data.error_callback is not None:
                 rpc_data.error_callback(

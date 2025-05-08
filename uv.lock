@@ -309,6 +309,7 @@ dependencies = [
     { name = "click" },
     { name = "feder-common" },
     { name = "feder-server" },
+    { name = "psutil" },
 ]
 
 [package.metadata]
@@ -316,6 +317,7 @@ requires-dist = [
     { name = "click", specifier = ">=8.1.8" },
     { name = "feder-common", editable = "libs/common" },
     { name = "feder-server", editable = "libs/server" },
+    { name = "psutil", specifier = ">=7.0.0" },
 ]
 
 [[package]]
@@ -375,6 +377,7 @@ dependencies = [
     { name = "feder-common" },
     { name = "feder-server" },
     { name = "pandas" },
+    { name = "psutil" },
     { name = "pyarrow" },
     { name = "requests" },
 ]
@@ -385,6 +388,7 @@ requires-dist = [
     { name = "feder-common", editable = "libs/common" },
     { name = "feder-server", editable = "libs/server" },
     { name = "pandas", specifier = ">=2.2.3" },
+    { name = "psutil", specifier = ">=7.0.0" },
     { name = "pyarrow", specifier = ">=19.0.1" },
     { name = "requests", specifier = ">=2.32.3" },
 ]

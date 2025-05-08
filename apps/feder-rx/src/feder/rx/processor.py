@@ -3,18 +3,20 @@ import logging
 from queue import PriorityQueue
 from threading import Event
 
+import psutil
+
 from feder.common import DataSource
 from feder.server import (
-    Config, RMQ, Trajectory, TrajectoryBatch, LivenessChecker,
-    log_counts, ThreadControl
+    Config, RMQ, Trajectory, TrajectoryBatch, LivenessChecker, Liveness,
+    log_counts, ThreadControl, LivenessResponse
 )
 import feder.server.rmq as rmq
 
 from .commands import (
+    Command,
     SourcePositionCommand, BatchSourcePositionCommand,
     SourceErrorCommand, SourceDoneCommand,
-    IngesterStatusCommand, CompleteCommand,
-    RMQCommand
+    IngesterStatusCommand, RMQCommand, StopCommand
 )
 from .db import DB
 
@@ -65,6 +67,8 @@ class Processor:
         self._fix_time_last_completion = None
         self._real_time_last_completion = datetime.now()
         self._trajectory_count = 0
+        self._ingester_failed = False
+        self._ingester_slow = False
 
         # Flow control: used only for historical processing. For historical
         # jobs, the receiver can process a *lot* of data very quickly (it
@@ -78,7 +82,7 @@ class Processor:
         self._trajectory_tranche_progress = 0
         self._trajectory_tranche_waiting = False
 
-    def run(self):
+    def run(self) -> None:
         # Process messages from command queue.
         while not self._done and not self._immediate_stop.is_set():
             # If we had got a DONE command and were just waiting for
@@ -100,11 +104,7 @@ class Processor:
                 self._trajectories = self._trajectories[self.TRAJECTORY_BATCH_SIZE:]
 
             try:
-                cmd = self.command_queue.get()
-                if cmd == 'STOP':
-                    # Used by immediate_stop to break out of loop.
-                    continue
-                self._process_one(cmd)
+                self._process_one(self.command_queue.get())
             except Exception:
                 logger.exception('command processing failed')
 
@@ -115,12 +115,12 @@ class Processor:
                 self._add_trajectories(self._final_completion_pending)
                 self._final_completion_pending = False
 
-    def immediate_stop(self):
+    def immediate_stop(self) -> None:
         self._immediate_stop.set()
         if self.command_queue.empty():
-            self.command_queue.put('STOP')
+            self.command_queue.put(StopCommand())
 
-    def _ok_to_complete(self):
+    def _ok_to_complete(self) -> bool:
         # If there have been a lot of fixes since the last completion, we can
         # do one.
         dfix = self._fix_count_total - self._fix_count_last_completion
@@ -146,19 +146,22 @@ class Processor:
         # Otherwise, not yet.
         return False
 
-    def _add_trajectories(self, final: bool = False):
+    def _add_trajectories(self, final: bool = False) -> None:
         self._fix_count_last_completion = self._fix_count_total
         self._fix_time_last_completion = self._fix_time_latest
         self._real_time_last_completion = datetime.now()
         self._trajectories += self._identify_complete_trajectories(final)
 
-    def _log_positions(self, fixes_processed):
+    def _log_positions(self, fixes_processed: int) -> None:
         self._fix_count_total = log_counts(
             logger, 'position fixes', self._fix_count_total, fixes_processed, 4
         )
 
-    def _process_one(self, command):
+    def _process_one(self, command: Command) -> None:
         match command:
+            case StopCommand():
+                self._done = True
+
             case SourcePositionCommand() as cmd:
                 self._log_positions(self._source_position(cmd))
 
@@ -175,15 +178,11 @@ class Processor:
                 logger.info('SOURCE-DONE')
                 self._source_done(latest_time)
 
-            case CompleteCommand():
-                self._complete_trajectories()
-
-            case IngesterStatusCommand(live, info):
-                if self._handle_ingester_status(live, info):
+            case IngesterStatusCommand() as cmd:
+                if self._handle_ingester_status(cmd.response):
                     self.source_control.resume()
                 else:
                     self.source_control.pause()
-
 
             case RMQCommand() as cmd:
                 match cmd.message:
@@ -203,7 +202,11 @@ class Processor:
 
                     case rmq.RPCMessage() as msg:
                         if msg.endpoint == self.liveness_endpoint:
-                            LivenessChecker.send_reply(self.rmq, msg)
+                            LivenessChecker.send_reply(
+                                self.rmq, msg,
+                                status=self._liveness_status(),
+                                info=self._liveness_info()
+                            )
                         else:
                             logger.warning(
                                 'unknown RPC endpoint: %s', msg.endpoint
@@ -214,10 +217,32 @@ class Processor:
                             'unexpected RMQ message "%s"', cmd.message
                         )
 
-    def _handle_ingester_status(self, live, info) -> bool:
-        if not live:
+    def _liveness_status(self) -> Liveness:
+        if self._ingester_failed:
+            return Liveness.INGESTER_DOWN
+        if self._ingester_slow:
+            return Liveness.INGESTER_SLOW
+        return Liveness.OK
+
+    def _liveness_info(self) -> LivenessResponse.Info:
+        return dict(
+            fix_count_total=self._fix_count_total,
+            fix_count_last_completion=self._fix_count_last_completion,
+            fix_time_latest=self._fix_time_latest,
+            fix_time_last_completion=self._fix_time_last_completion,
+            time_last_completion=self._real_time_last_completion,
+            trajectory_count=self._trajectory_count,
+            memory_usage=psutil.Process().memory_info().rss
+        )
+
+    def _handle_ingester_status(
+            self, response: LivenessResponse
+    ) -> bool:
+        if response.status != Liveness.OK:
             logger.info('ingester has failed!')
+            self._ingester_failed = True
             return False
+        self._ingester_failed = False
 
         if not self.historical:
             return True
@@ -225,7 +250,7 @@ class Processor:
         # Flow control for historical jobs follows...
 
         # If the ingester hasn't ingested anything at all yet, just continue.
-        if info['last_ingested'] == 0:
+        if response.info['last_ingested'] == 0:
             return True
 
         # Collect a rolling sequence of trajectory counts and times for
@@ -253,10 +278,12 @@ class Processor:
                 'ingester delta too great: %s - %s = %s - waiting...',
                 self._trajectory_count, self._ingester_trajectory_counts[-1], delta
             )
+            self._ingester_slow = True
             return False
 
         # If the ingester is not too far behind, we can send trajectories.
         # Calculate a good number to send based on the ingestion rate.
+        self._ingester_slow = False
         self._trajectory_tranche_size = round(
             int(5 * ingester_rate * self.ingester_liveness_interval), -2
         )
@@ -265,7 +292,9 @@ class Processor:
 
         return True
 
-    def _process_ack_nack(self, delivery_tag: int, delete_trajectories: bool):
+    def _process_ack_nack(
+            self, delivery_tag: int, delete_trajectories: bool
+    ) -> None:
         if delivery_tag in self._pending_rmq_messages:
             to_delete = [
                 tag for tag in self._pending_rmq_messages.keys()
@@ -297,7 +326,7 @@ class Processor:
         )
         return len(cmd.source_ids)
 
-    def _trajectory_tranche_control(self, ntrajs):
+    def _trajectory_tranche_control(self, ntrajs: int) -> None:
         self._trajectory_tranche_progress += ntrajs
         if (
             self._trajectory_tranche_progress >= self._trajectory_tranche_size and
@@ -310,13 +339,13 @@ class Processor:
             )
             self.source_control.pause()
 
-    def _source_done(self, latest_time: datetime):
+    def _source_done(self, latest_time: datetime) -> None:
         # Run a final trajectory completion cycle and mark that we
         # should exit when it's finished.
         self._final_completion_pending = True
         self._done_pending = True
 
-    def _send_trajectories(self, source_ids: list[str]):
+    def _send_trajectories(self, source_ids: list[str]) -> None:
         self._trajectory_count = log_counts(
             logger, 'trajectories', self._trajectory_count, len(source_ids), 2
         )
@@ -353,7 +382,8 @@ class Processor:
         )
         if message_number is not None:
             self._pending_rmq_messages[message_number] = source_ids
-        self._trajectory_tranche_control(len(payloads))
+        if self.historical:
+            self._trajectory_tranche_control(len(payloads))
 
     def _identify_complete_trajectories(self, final: bool = False) -> list[str]:
         if final:
@@ -362,17 +392,12 @@ class Processor:
             # staging database is consumed during the final trajectory
             # completion cycle.
             horizon = self._fix_time_latest + self.completion_delay
-        elif self.historical:
-            # For historical processing jobs, we use the time of the last
-            # position fix as a reference time for calculating the trajectory
-            # completion horizon.
+        else:
+            # Use the time of the last position fix as a reference time for
+            # calculating the trajectory completion horizon.
             if self._fix_time_latest is None:
                 # The case where a completion trajectory is triggered for a
-                # historical processing job before we have any position fixes.
+                # job before we have any position fixes.
                 return []
             horizon = self._fix_time_latest - self.completion_delay
-        else:
-            # For live processing, we use the current time (minus any
-            # source-dependent data lag) as the reference.
-            horizon = datetime.now() - self.data_lag - self.completion_delay
         return self.db.complete_source_ids(horizon)

@@ -1,7 +1,6 @@
 from datetime import datetime, date, timedelta
 import logging
 import os
-import time
 
 from feder.common import Trajectory
 
@@ -23,10 +22,6 @@ class DBCache:
         self.data_dir = data_dir
         self.connection_cache_size = connection_cache_size
         self._connections: LastUpdatedOrderedDict[date, WritableDB] = LastUpdatedOrderedDict()
-
-        # self._nstats = 8
-        # self._dt = [0] * self._nstats
-        # self._n = [0] * self._nstats
 
     def connect(self, ref_date: datetime | date | int) -> WritableDB:
         if isinstance(ref_date, int):
@@ -91,59 +86,25 @@ class DBCache:
         db_0 = self.connect(traj.points[0].time)
         db_m1 = self.connect(traj.points[0].time - timedelta(days=1))
         db_p1 = self.connect(traj.points[0].time + timedelta(days=1))
-        # # TIME: 0.07 ms
-        # tic1 = time.perf_counter()
-        # self._dt[0] += tic1 - tic0
-        # self._n[0] += 1
 
         # Any existing trajectories in any of those databases?
         traj_0 = db_0.get_flight_by_id(traj.source, traj.source_id)
-        # # TIME: 20 ms
-        # tic0 = tic1
-        # tic1 = time.perf_counter()
-        # self._dt[1] += tic1 - tic0
-        # self._n[1] += 1
         traj_m1 = db_m1.get_flight_by_id(traj.source, traj.source_id)
-        # # TIME: 20 ms
-        # tic0 = tic1
-        # tic1 = time.perf_counter()
-        # self._dt[2] += tic1 - tic0
-        # self._n[2] += 1
         traj_p1 = db_p1.get_flight_by_id(traj.source, traj.source_id)
-        # # TIME: 0.1 ms
-        # tic0 = tic1
-        # tic1 = time.perf_counter()
-        # self._dt[3] += tic1 - tic0
-        # self._n[3] += 1
 
         # The trajectory is partial, since we've found parts of it already in
         # one of these database files, so merge the trajectory data.
         if traj_0 is not None or traj_m1 is not None or traj_p1 is not None:
             traj = traj.merge(traj_m1, traj_0, traj_p1)
-            # # TIME: 0.05 ms (3-5%)
-            # tic0 = tic1
-            # tic1 = time.perf_counter()
-            # self._dt[4] += tic1 - tic0
-            # self._n[4] += 1
 
         # The trajectory to be merged spans multiple database files. Nothing
         # we can do but handle that like the barbarians we are.
         if traj_m1 is not None:
             db_m1.delete_trajectory(traj_m1, commit=False)
             touched.add(db_m1)
-            # # TIME: 40 ms (1-2%)
-            # tic0 = tic1
-            # tic1 = time.perf_counter()
-            # self._dt[5] += tic1 - tic0
-            # self._n[5] += 1
         if traj_p1 is not None:
             db_p1.delete_trajectory(traj_p1, commit=False)
             touched.add(db_p1)
-            # # TIME: 0 ms (didn't happen)
-            # tic0 = tic1
-            # tic1 = time.perf_counter()
-            # self._dt[6] += tic1 - tic0
-            # self._n[6] += 1
 
         # The rest of what we need to do operates on a single database file,
         # we *can* do it in a single transaction.
@@ -151,17 +112,5 @@ class DBCache:
             db_0.delete_trajectory(traj_0, commit=False)
         db_0.add_trajectory(traj, commit=False)
         touched.add(db_0)
-        # # TIME: 6 ms
-        # tic0 = tic1
-        # tic1 = time.perf_counter()
-        # self._dt[7] += tic1 - tic0
-        # self._n[7] += 1
 
-        # if self._n[0] >= 1000:
-        #     for i in range(self._nstats):
-        #         if self._n[i] > 0:
-        #             self._dt[i] /= self._n[i]
-        #     print('DB-STATS: ' + ', '.join(f'{dt} ({n})' for dt, n in zip(self._dt, self._n)))
-        #     self._dt = [0] * self._nstats
-        #     self._n = [0] * self._nstats
         return touched

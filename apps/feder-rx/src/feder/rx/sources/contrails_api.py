@@ -1,10 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import logging
 from queue import PriorityQueue
 from typing import Generator
 
-import numpy as np
 import pandas as pd
 import requests
 
@@ -71,15 +70,18 @@ class ContrailsAPISource(DateSource):
                     stop=True
                 ))
                 return False
+            case requests.codes.not_found:
+                logger.info('data not available yet...')
+                return True
             case _:
                 self.queue.put(SourceErrorCommand(
                     message=(
-                        f'failed to retrieve ADS-B Parquet file for {_format_time(t)}'
+                        f'failed to retrieve ADS-B Parquet file for {_format_time(t)}' +
                         (' (waiting 5 minutes to try again...)' if retry else '')
                     ),
                     stop=not retry
                 ))
-                return not retry
+                return retry
 
     def run_historical(self):
         request_time = self.start_time
@@ -92,8 +94,7 @@ class ContrailsAPISource(DateSource):
                 # NOT QUITTING RIGHT AWAY.
                 self.retrieve_error(request_time, df_or_status)
                 break
-            df = df_or_status
-            for cmd in self.process_df(df):
+            for cmd in self.process_df(df_or_status):
                 if self.stopped:
                     return
                 self.control.check()
@@ -108,7 +109,7 @@ class ContrailsAPISource(DateSource):
 
             request_time += self.DATE_INTERVAL
 
-        logger.info('Total position fixes from source: %s', fix_count)
+        logger.info('total position fixes from source: %s', fix_count)
         self.put(SourceDoneCommand(latest_time))
 
     def process_df(self, df) -> Generator[Command, None, None]:
@@ -117,8 +118,14 @@ class ContrailsAPISource(DateSource):
             return None if pd.isna(x) or x == '' else xform(x)
 
         # Ignore records with no callsign!
-        # NOTE: Contrails API returns rows in *reverse* time order...
-        for tup in df[~df.callsign.isna()][::-1].itertuples(index=False):
+        #
+        # NOTE: Contrails API returns rows in *reverse* time order so let's be
+        # defensive and reverse them to get them in the right order if that's
+        # the case!
+        process_df = df[~df.callsign.isna()]
+        if process_df.timestamp.iloc[0] > process_df.timestamp.iloc[-1]:
+            process_df = process_df[::-1]
+        for tup in process_df.itertuples(index=False):
             # One source position command per row.
             self._source_ids.append(tup.flight_id)
             self._transponder_ids.append(tup.icao_address)
@@ -156,13 +163,20 @@ class ContrailsAPISource(DateSource):
             self._clear()
 
     def run_live(self):
-        retrieval_time = datetime.now() - self.config.data_lag(self.SOURCE)
+        retrieval_time = (
+            datetime.now(timezone.utc) - self.config.data_lag(self.SOURCE)
+        )
         retrieval_time = round_time(retrieval_time - self.DATE_INTERVAL, 'h')
         retries = 0
+        fix_count = 0
+        latest_time = datetime(1, 1, 1)
         while not self.stopped:
+            log_time = retrieval_time.strftime('%Y-%m-%dT%H')
+
             # Wait for the right time to retrieve the next Parquet file.
             # If the process was stopped during the wait, quit immediately.
-            if self.wait_for(retrieval_time):
+            logger.info('waiting to retrieve data for %s...', log_time)
+            if self.wait_for(retrieval_time + self.config.data_lag(self.SOURCE)):
                 break
 
             # Try retrieving the next file.
@@ -179,15 +193,27 @@ class ContrailsAPISource(DateSource):
                     break
 
                 # retrieve_error returns False if the error is unrecoverable.
-                if not self.retrieve_error(retrieval_time, retry=True):
+                if not self.retrieve_error(retrieval_time, df_or_status, retry=True):
                     break
                 if self.wait_for(datetime.now() + timedelta(minutes=5)):
                     break
                 retries += 1
                 continue
 
-            # TODO: FIX THIS
-            self.process_df(df)
+            logger.info('processing data for %s...', log_time)
+            for cmd in self.process_df(df_or_status):
+                if self.stopped:
+                    return
+                self.control.check()
+                match cmd:
+                    case SourcePositionCommand():
+                        fix_count += 1
+                        latest_time = max(latest_time, cmd.time)
+                    case BatchSourcePositionCommand():
+                        fix_count += len(cmd.source_ids)
+                        latest_time = max(latest_time, *cmd.times)
+                self.put(cmd)
+
             retries = 0
             retrieval_time += self.DATE_INTERVAL
 
@@ -203,10 +229,13 @@ class ContrailsAPISource(DateSource):
 
         cached_path = self.cached_file(f'{tstr}.pq')
         if cached_path is not None:
-            logger.info('Using cached Spire ADS-B data for %s', tstr)
-            return pd.read_parquet(cached_path)
+            logger.info('using cached Spire ADS-B data for %s', tstr)
+            try:
+                return pd.read_parquet(cached_path)
+            except Exception:
+                logger.error('failed to read cached data - retrieving again...')
 
-        logger.info('Retrieving Spire ADS-B data for %s', tstr)
+        logger.info('retrieving Spire ADS-B data for %s', tstr)
 
         r = requests.get(
             'https://api.contrails.org/v1/adsb/telemetry',
@@ -224,11 +253,23 @@ class ContrailsAPISource(DateSource):
             )
             return r.status_code
 
-        # if self.file_cache is not None:
-        #     # TODO: Save retrieved file to cache and read.
-        #     ...
-        # else:
-        return pd.read_parquet(BytesIO(r.content))
+        # Retrieve data, simultaneously saving to cache file if required.
+        save_fp = None
+        data = BytesIO()
+        try:
+            if self.file_cache is not None:
+                save_fp = open(self.cache_path(f'{tstr}.pq'), 'wb')
+
+            for chunk in r.iter_content(chunk_size=128):
+                data.write(chunk)
+                if save_fp is not None:
+                    save_fp.write(chunk)
+        finally:
+            if save_fp is not None:
+                save_fp.close()
+
+        data.seek(0)
+        return pd.read_parquet(data)
 
 
 def _format_time(t: datetime) -> str:

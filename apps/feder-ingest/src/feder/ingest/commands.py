@@ -9,7 +9,7 @@ import feder.server.rmq as rmq
 
 @total_ordering
 class Command:
-    PRIORITY = None
+    PRIORITY: int = None  # type: ignore
 
     def __eq__(self, other):
         return self.PRIORITY == other.PRIORITY

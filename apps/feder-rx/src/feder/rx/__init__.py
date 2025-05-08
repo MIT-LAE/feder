@@ -10,11 +10,10 @@ import click
 
 from feder.server import (
     logging_setup, Config, RMQ, rmq_parameters,
-    RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE,
-    Message, TimerThread, LivenessChecker
+    RMQ_TRAJECTORY_EXCHANGE, Message, LivenessChecker
 )
 
-from .commands import IngesterStatusCommand, CompleteCommand, RMQCommand
+from .commands import IngesterStatusCommand, RMQCommand
 from .sources.contrails_api import ContrailsAPISource
 from .sources.csv import CSVSource
 from .sources.flightaware import FlightAwareSource
@@ -37,13 +36,6 @@ SOURCES = [
 SOURCES_BY_NAME = {s.name(): s for s in SOURCES}
 
 MAX_OUTSTANDING_POSITIONS = 500
-
-
-class CompletionTimerThread(TimerThread):
-    def __init__(self, cfg: Config, queue: PriorityQueue, source: str):
-        super().__init__(
-            queue, cfg.completion_interval(source).seconds, CompleteCommand
-        )
 
 
 @click.command()
@@ -72,7 +64,7 @@ class CompletionTimerThread(TimerThread):
     help='Path to directory containing downloaded historical files'
 )
 @click.argument(
-    'source',
+    'source-name',
     type=click.Choice([s.name() for s in SOURCES]),
     required=True
 )
@@ -82,8 +74,10 @@ def run(
         purge_staging: bool,
         start_time: str | None, end_time: str | None,
         file_cache: str | None,
-        source: str, glob_args: tuple[str, ...]
+        source_name: str, glob_args: tuple[str, ...]
 ) -> None:
+    source = SOURCES_BY_NAME[source_name]
+
     logging_setup(debug)
 
     # Process configuration file.
@@ -104,14 +98,16 @@ def run(
             'either give start and end times OR list of file globs'
         )
         sys.exit(1)
-    if start_time is not None:
+    start_datetime: datetime | None = None
+    end_datetime: datetime | None = None
+    if start_time is not None and end_time is not None:
         try:
-            start_time = datetime.fromisoformat(start_time)
+            start_datetime = datetime.fromisoformat(start_time)
         except ValueError:
             logger.critical('invalid ISO 8601 time for "start-time"')
             sys.exit(1)
         try:
-            end_time = datetime.fromisoformat(end_time)
+            end_datetime = datetime.fromisoformat(end_time)
         except ValueError:
             logger.critical('invalid ISO 8601 time for "end-time"')
             sys.exit(1)
@@ -125,12 +121,12 @@ def run(
     # passing in any arguments to run as a historical update process).
     # TODO: Might be better not to do this, but use systemd's enable/disable
     # functionality?
-    if not historical and not cfg.enabled(source):
-        logger.critical('source "%s" not enabled for live updates', source)
+    if not historical and not cfg.enabled(source.SOURCE):
+        logger.critical('source "%s" not enabled for live updates', source_name)
         sys.exit(1)
 
     # For historical processes, make a unique name.
-    name = source
+    name = source_name
     if historical:
         name += f'-{os.getpid()}'
 
@@ -144,14 +140,13 @@ def run(
     # queue to do this.
     command_queue = PriorityQueue(5)
 
-    try:
-        # For exception handling...
-        db = None
-        rmq = None
-        data_source = None
-        completion_timer_thread = None
-        ingester_liveness = None
+    # For exception handling...
+    db = None
+    rmq = None
+    data_source = None
+    ingester_liveness = None
 
+    try:
         # Connect to staging database for current source. For historical
         # processing jobs, a unique name is used for the staging database, since
         # the database will be completely consumed at the end of the processing
@@ -174,7 +169,7 @@ def run(
             parameters=rmq_parameters(cfg),
             out_queue=command_queue,
             message_class=Message,
-            exchanges=[RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE],
+            exchanges=[RMQ_TRAJECTORY_EXCHANGE],
             wrapper_class=RMQCommand,
             rpc_client=True,
             rpc_server=rpc_server,
@@ -182,18 +177,11 @@ def run(
         )
 
         # Set up data source handler.
-        data_source = SOURCES_BY_NAME[source](
+        data_source = source(
             cfg, command_queue,
-            start_time=start_time, end_time=end_time,
+            start_time=start_datetime, end_time=end_datetime,
             file_cache=file_cache, glob_args=glob_args
         )
-
-        # Set up completion timer threads.
-        completion_timer_thread = None
-        if not historical:
-            completion_timer_thread = CompletionTimerThread(
-                cfg, command_queue, data_source.SOURCE
-            )
 
         # Set up ingester liveness checking.
         ingester_liveness = LivenessChecker(
@@ -226,9 +214,7 @@ def run(
         ingester_liveness.wait()
         logger.info('ingester is alive')
         if ingester_liveness.live:
-            # Start the other threads.
-            if completion_timer_thread is not None:
-                completion_timer_thread.start()
+            # Start the data source.
             data_source.start()
 
             # Process messages from queue.
@@ -245,8 +231,6 @@ def run(
         # worker threads and RabbitMQ.
         if data_source is not None:
             data_source.stop()
-        if completion_timer_thread is not None:
-            completion_timer_thread.stop()
         if ingester_liveness is not None:
             ingester_liveness.stop()
         if rmq is not None:

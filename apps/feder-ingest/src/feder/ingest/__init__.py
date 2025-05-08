@@ -6,7 +6,7 @@ import click
 
 from feder.server import (
     logging_setup, Config, RMQ, rmq_parameters,
-    RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE,
+    RMQ_TRAJECTORY_EXCHANGE,
     LivenessChecker, Consumer, Message, TrajectoryBatch
 )
 
@@ -43,7 +43,7 @@ def run(debug: bool, config: str | None) -> None:
         parameters=rmq_parameters(cfg),
         out_queue=queue,
         message_class=Message,
-        exchanges=[RMQ_TRAJECTORY_EXCHANGE, RMQ_MONITOR_EXCHANGE],
+        exchanges=[RMQ_TRAJECTORY_EXCHANGE],
         consumers=[
             Consumer(RMQ_TRAJECTORY_EXCHANGE, TrajectoryBatch, durable=True)
         ],
@@ -65,6 +65,7 @@ def run(debug: bool, config: str | None) -> None:
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
+    db = None
     try:
         # Set up database connection cache.
         db = DBCache(cfg.data_directory)
@@ -73,7 +74,8 @@ def run(debug: bool, config: str | None) -> None:
         processor = Processor(cfg, db, queue, rmq)
         processor.run()
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
     # If we get here, the ingester has already stopped, so we just need to
     # clean up RabbitMQ.

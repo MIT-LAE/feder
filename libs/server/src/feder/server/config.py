@@ -34,6 +34,7 @@ class Config:
 
         logger.debug(self.raw)
 
+        self._missing = []
         try:
             self._init_paths()
             self._init_rabbitmq()
@@ -52,9 +53,6 @@ class Config:
     def completion_delay(self, source: DataSource) -> Timedelta:
         return self._source_completion_delay[source]
 
-    def completion_interval(self, source: DataSource) -> Timedelta:
-        return self._source_completion_interval[source]
-
     def data_lag(self, source: DataSource) -> Timedelta:
         return self._source_data_lag[source]
 
@@ -72,9 +70,13 @@ class Config:
         self.rabbitmq_password: str = self._get_str('rabbitmq', 'password')
 
     def _init_monitoring(self):
-        self.heartbeat_interval: Timedelta = self._get_interval(
-            'monitoring', 'heartbeat-interval', default=_td(Timedelta('30 seconds'))
+        self.monitoring_check_interval: Timedelta = self._get_interval(
+            'monitoring', 'check-interval', default=_td(Timedelta('30 seconds'))
         )
+        self.monitor_send_interval: Timedelta = self._get_interval(
+            'monitoring', 'send-interval', default=_td(Timedelta('30 seconds'))
+        )
+        self.monitoring_send_emails: bool = self._get_bool('monitoring', 'send-emails')
         self.monitoring_from_email: str = self._get_str('monitoring', 'from-email')
         self.monitoring_from_name: str = self._get_str('monitoring', 'from-name')
         self.monitoring_to_email: str = self._get_str('monitoring', 'to-email')
@@ -87,9 +89,6 @@ class Config:
         def_comp_delay: Timedelta = self._get_interval(
             'sources', 'completion-delay', default=_td(Timedelta('15 minutes'))
         )
-        def_comp_interval: Timedelta = self._get_interval(
-            'sources', 'completion-interval', default=_td(Timedelta('60 seconds'))
-        )
         def_data_lag: Timedelta = self._get_interval(
             'sources', 'data-lag', default=_td(Timedelta(0))
         )
@@ -98,29 +97,26 @@ class Config:
         self._source_completion_delay: dict[DataSource, Timedelta] = self._get_sources_interval(
             'completion-delay', default=def_comp_delay
         )
-        self._source_completion_interval: dict[DataSource, Timedelta] = self._get_sources_interval(
-            'completion-interval', default=def_comp_interval
-        )
         self._source_data_lag: dict[DataSource, Timedelta] = self._get_sources_interval(
             'data-lag', default=def_data_lag
         )
 
-        self._source_credentials: dict[DataSource, Any] = {}
+        self._source_credentials: dict[DataSource, dict[str, str]] = {}
 
         for s in [
                 DataSource.CONTRAILS_API,
                 DataSource.OPENSKY,
                 DataSource.OPENSKY_STATE_VECTORS
         ]:
-            api_key = self._get_str(['source', str(s)], 'api-key', missing_ok=True)
+            api_key = self._get_opt_str(['source', str(s)], 'api-key')
             if api_key is not None:
                 self._source_credentials[s] = dict(api_key=api_key)
 
-        username = self._get_str(
-            ['source', str(DataSource.FLIGHTAWARE)], 'username', missing_ok=True
+        username = self._get_opt_str(
+            ['source', str(DataSource.FLIGHTAWARE)], 'username'
         )
-        password = self._get_str(
-            ['source', str(DataSource.FLIGHTAWARE)], 'password', missing_ok=True
+        password = self._get_opt_str(
+            ['source', str(DataSource.FLIGHTAWARE)], 'password'
         )
         if username is not None and password is not None:
             self._source_credentials[DataSource.FLIGHTAWARE] = dict(
@@ -160,15 +156,25 @@ class Config:
     def _get_str(
             self,
             table: str | list[str], key: str,
-            default: str | None = None,
-            missing_ok: bool = False
-    ) -> str | None:
+            default: str | None = None
+    ) -> str:
         table = _as_list(table)
-        value = self._get(table, key, missing_ok, default)
+        value = self._get(table, key, default)
         if isinstance(value, str):
             return value
-        if missing_ok and value is None:
-            return None
+        if value is None:
+            return ''
+        self._type_error(table, key)
+
+    def _get_opt_str(
+            self,
+            table: str | list[str], key: str,
+            default: str | None = None
+    ) -> str | None:
+        table = _as_list(table)
+        value = self._get(table, key, default, missing_ok=True)
+        if isinstance(value, str) or value is None:
+            return value
         self._type_error(table, key)
 
     def _get_int(

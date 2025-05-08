@@ -3,7 +3,7 @@ from datetime import datetime
 import functools
 
 import feder.server.rmq as rmq
-from feder.server.messages import LivenessResponse
+from feder.server.messages import Liveness, LivenessResponse
 
 
 # Classes representing different commands that go into the internal command
@@ -22,6 +22,11 @@ class Command:
             return self.message < other.message
         else:
             return self.priority() < other.priority()
+
+
+class StopCommand(Command):
+    def priority(self) -> rmq.Message.Priority:
+        return rmq.Message.Priority.MAXIMUM
 
 
 @dataclass
@@ -44,15 +49,11 @@ class SourceDoneCommand(Command):
 
 @dataclass
 class IngesterStatusCommand(Command):
-    live: bool
-    info: LivenessResponse.Info
+    response: LivenessResponse
+    response_received: datetime
 
     def priority(self) -> rmq.Message.Priority:
         return rmq.Message.Priority.HIGH
-
-
-class CompleteCommand(Command):
-    ...
 
 
 @dataclass
@@ -68,8 +69,8 @@ class SourcePositionCommand(Command):
     source_id: str
     transponder_id: str
     time: datetime
-    orig: list[str | None]
-    dest: list[str | None]
+    orig: str | None
+    dest: str | None
     callsign: str
     aircraft_type: str | None
     lat: float

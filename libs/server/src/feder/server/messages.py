@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum, auto
 import logging
-from typing import Self
+from typing import Self, Any
 
 import numpy as np
 import pandas as pd
@@ -19,12 +19,11 @@ from .models import Fix
 logger = logging.getLogger(__name__)
 
 
-@dataclass
 class Message(ABC):
-    MESSAGE_TAG = None
+    MESSAGE_TAG: str = None  # type: ignore
 
     @staticmethod
-    def unpack(data: bytes) -> Self:
+    def unpack(data: bytes) -> type['Message']:
         tag = chr(data[0])
         message_class = MESSAGE_TAG_DICT.get(tag)
         if message_class is None:
@@ -36,6 +35,7 @@ class Message(ABC):
     def pack(self) -> bytes:
         packer = Packer()
         self._pack(packer)
+        assert self.MESSAGE_TAG is not None
         return bytes([ord(self.MESSAGE_TAG)]) + bz2.compress(packer.data())
 
     @abstractmethod
@@ -133,7 +133,8 @@ class TrajectoryBatch(Message):
 class Liveness(Enum):
     UNKNOWN = auto()
     OK = auto()
-    ERROR = auto()
+    INGESTER_DOWN = auto()
+    INGESTER_SLOW = auto()
 
 
 @dataclass
@@ -141,29 +142,24 @@ class LivenessQuery(Message):
     MESSAGE_TAG = 'L'
 
     source: str
-    include_info: bool
 
     def _pack(self, packer: Packer):
         packer.str(self.source)
-        packer('>?', self.include_info)
 
     @classmethod
     def _unpack(cls, unpacker: Unpacker) -> Self:
-        return cls(
-            source=unpacker.str(),
-            include_info=unpacker('>?')
-        )
+        return cls(source=unpacker.str())
 
 
 @dataclass
 class LivenessResponse(Message):
     MESSAGE_TAG = 'l'
-    Info = dict[str, int | float | str | datetime] | None
+    Info = dict[str, int | float | str | datetime]
 
     source: str
     time: datetime
     status: Liveness
-    info: Info = None
+    info: Info
 
     def _pack(self, packer: Packer):
         packer.str(self.source)
@@ -181,32 +177,27 @@ class LivenessResponse(Message):
         )
 
     def _pack_info(self, packer: Packer):
-        if self.info is None:
-            packer('>B', 0)
-        else:
-            packer('>B', len(self.info))
-            for k, v in self.info.items():
-                packer.str(k)
-                if isinstance(v, int):
-                    packer('>B', ord('I'))
-                    packer('>q', v)
-                elif isinstance(v, float):
-                    packer('>B', ord('F'))
-                    packer('>d', v)
-                elif isinstance(v, str):
-                    packer('>B', ord('S'))
-                    packer.str(v)
-                elif isinstance(v, datetime):
-                    packer('>B', ord('D'))
-                    packer('>L', int(v.timestamp()))
-                else:
-                    raise ValueError('invalid info property in LivenessResponse')
+        packer('>B', len(self.info))
+        for k, v in self.info.items():
+            packer.str(k)
+            if isinstance(v, int):
+                packer('>B', ord('I'))
+                packer('>q', v)
+            elif isinstance(v, float):
+                packer('>B', ord('F'))
+                packer('>d', v)
+            elif isinstance(v, str):
+                packer('>B', ord('S'))
+                packer.str(v)
+            elif isinstance(v, datetime):
+                packer('>B', ord('D'))
+                packer('>L', int(v.timestamp()))
+            else:
+                raise ValueError('invalid info property in LivenessResponse')
 
     @classmethod
     def _unpack_info(cls, unpacker: Unpacker):
-        nentries = unpacker('>B')
-        if nentries == 0:
-            return None
+        nentries = int(unpacker('>B'))
         info = {}
         for i in range(nentries):
             k = unpacker.str()
@@ -237,7 +228,7 @@ def _single_value_check(
         source_id: str,
         fixes: list[Fix],
         field_name: str,
-        choice_index: int = None
+        choice_index: int | None = None
 ):
     vals = [getattr(f, field_name) for f in fixes]
     if len(set(vals)) != 1:
@@ -246,7 +237,7 @@ def _single_value_check(
         # Choose a value from the non-null items.
         vals = [v for v in vals if v is not None]
         if len(vals) == 0:
-            logger.warn(msg + ' (no suitable value found)')
+            logger.warning(msg + ' (no suitable value found)')
             return
 
         # If an index is specified, use it. Otherwise take a majority vote.
@@ -260,5 +251,5 @@ def _single_value_check(
             setattr(f, field_name, selected)
 
 
-def _substitute_none(xs):
-    return np.where(pd.isna(xs), -999999, xs)
+def _substitute_none(x):
+    return -999999 if x is None or pd.isna(x) else x
