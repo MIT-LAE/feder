@@ -49,7 +49,7 @@ class SourceDoneCommand(Command):
 
 @dataclass
 class IngesterStatusCommand(Command):
-    response: IngesterLivenessResponse
+    response: IngesterLivenessResponse | None
     response_received: datetime
 
     def priority(self) -> rmq.Message.Priority:

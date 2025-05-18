@@ -209,9 +209,9 @@ class Processor:
                         )
 
     def _handle_ingester_status(
-            self, response: IngesterLivenessResponse
+            self, response: IngesterLivenessResponse | None
     ) -> bool:
-        if response.status != Liveness.OK:
+        if response is None:
             logger.info('ingester has failed!')
             return False
 
