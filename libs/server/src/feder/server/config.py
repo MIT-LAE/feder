@@ -47,9 +47,6 @@ class Config:
             logger.critical(exc.args[0])
             sys.exit(1)
 
-    def enabled(self, source: DataSource) -> bool:
-        return self._source_enabled[source]
-
     def completion_delay(self, source: DataSource) -> Timedelta:
         return self._source_completion_delay[source]
 
@@ -58,6 +55,9 @@ class Config:
 
     def credentials(self, source: DataSource) -> dict[str, Any]:
         return self._source_credentials[source]
+
+    def prometheus_port(self, source: DataSource) -> int | None:
+        return self._source_prometheus_ports.get(source)
 
     def _init_paths(self):
         self.data_directory: str = self._get_str('paths', 'data-directory')
@@ -70,20 +70,14 @@ class Config:
         self.rabbitmq_password: str = self._get_str('rabbitmq', 'password')
 
     def _init_monitoring(self):
-        self.monitoring_check_interval: Timedelta = self._get_interval(
-            'monitoring', 'check-interval', default=_td(Timedelta('30 seconds'))
+        self.prometheus_scrape_interval: Timedelta = self._get_interval(
+            'monitoring', 'prometheus-scrape-interval',
+            default=_td(Timedelta('60 seconds'))
         )
-        self.monitor_send_interval: Timedelta = self._get_interval(
-            'monitoring', 'send-interval', default=_td(Timedelta('30 seconds'))
+        self.ingester_prometheus_port: int = self._get_int(
+            'ingester', 'prometheus-port'
         )
-        self.monitoring_send_emails: bool = self._get_bool('monitoring', 'send-emails')
-        self.monitoring_from_email: str = self._get_str('monitoring', 'from-email')
-        self.monitoring_from_name: str = self._get_str('monitoring', 'from-name')
-        self.monitoring_to_email: str = self._get_str('monitoring', 'to-email')
-        self.monitoring_to_name: str = self._get_str('monitoring', 'to-name')
-        self.monitoring_mail_backend: str = self._get_str('monitoring', 'mail-backend')
-        self.monitoring_mailjet_api_key: str = self._get_str('monitoring', 'mailjet-api-key')
-        self.monitoring_mailjet_secret_key: str = self._get_str('monitoring', 'mailjet-secret-key')
+        self._source_prometheus_ports: dict[DataSource, int | None] = self._get_sources_opt_int('prometheus-port')
 
     def _init_sources(self):
         def_comp_delay: Timedelta = self._get_interval(
@@ -93,7 +87,6 @@ class Config:
             'sources', 'data-lag', default=_td(Timedelta(0))
         )
 
-        self._source_enabled: dict[DataSource, bool] = self._get_sources_bool('enabled', default=False)
         self._source_completion_delay: dict[DataSource, Timedelta] = self._get_sources_interval(
             'completion-delay', default=def_comp_delay
         )
@@ -186,6 +179,13 @@ class Config:
             return value
         self._type_error(table, key)
 
+    def _get_opt_int(self, table: str | list[str], key: str) -> int | None:
+        table = _as_list(table)
+        value = self._get(table, key, missing_ok=True)
+        if isinstance(value, int) or value is None:
+            return value
+        self._type_error(table, key)
+
     def _get_bool(
             self, table: str | list[str], key: str, default: bool | None = None
     ) -> bool:
@@ -215,9 +215,9 @@ class Config:
             )
         return value
 
-    def _get_sources_bool(self, key: str, default: bool | None = None):
+    def _get_sources_opt_int(self, key: str):
         return {
-            s: self._get_bool(['source', str(s)], key, default=default)
+            s: self._get_opt_int(['source', str(s)], key)
             for s in DataSource
         }
 

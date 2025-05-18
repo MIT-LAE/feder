@@ -1,14 +1,10 @@
 from datetime import datetime, date, timedelta
-import logging
 import os
 
 from feder.common import Trajectory
 
 from .writeable_db import WritableDB
 from .utils import LastUpdatedOrderedDict
-
-
-logger = logging.getLogger(__name__)
 
 
 class DBCache:

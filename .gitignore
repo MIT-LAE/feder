@@ -127,4 +127,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
 /.dir-locals.el
+/config*.toml

@@ -1,14 +1,12 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from queue import PriorityQueue
 from threading import Event
 
-import psutil
-
 from feder.common import DataSource
 from feder.server import (
-    Config, RMQ, Trajectory, TrajectoryBatch, LivenessChecker, Liveness,
-    log_counts, ThreadControl, LivenessResponse
+    Config, RMQ, Trajectory, TrajectoryBatch, Liveness,
+    log_counts, ThreadControl, IngesterLivenessResponse
 )
 import feder.server.rmq as rmq
 
@@ -19,6 +17,10 @@ from .commands import (
     IngesterStatusCommand, RMQCommand, StopCommand
 )
 from .db import DB
+from .monitoring import (
+    fix_counter, last_completion_fix_counter, trajectory_counter,
+    latest_fix_time_gauge, last_completion_fix_time_gauge, last_completion_time_gauge
+)
 
 
 logger = logging.getLogger(__name__)
@@ -37,7 +39,7 @@ class Processor:
             self,
             config: Config, source: DataSource, name: str, historical: bool,
             db: DB, command_queue: PriorityQueue, rmq: RMQ,
-            liveness_endpoint: str | None, source_control: ThreadControl,
+            source_control: ThreadControl,
             ingester_liveness_interval: int
     ):
         self.config = config
@@ -51,7 +53,6 @@ class Processor:
         if self.historical:
             self.data_lag = timedelta(0)
         self.completion_delay = self.config.completion_delay(self.source)
-        self.liveness_endpoint = liveness_endpoint
         self.source_control = source_control
         self.ingester_liveness_interval = ingester_liveness_interval
 
@@ -65,10 +66,8 @@ class Processor:
         self._fix_count_last_completion = 0
         self._fix_time_latest = datetime(1, 1, 1)
         self._fix_time_last_completion = None
-        self._real_time_last_completion = datetime.now()
+        self._real_time_last_completion = datetime.now(timezone.utc)
         self._trajectory_count = 0
-        self._ingester_failed = False
-        self._ingester_slow = False
 
         # Flow control: used only for historical processing. For historical
         # jobs, the receiver can process a *lot* of data very quickly (it
@@ -139,7 +138,7 @@ class Processor:
 
         # And finally, we don't want to leave it too long in real time between
         # completions.
-        dtreal = datetime.now() - self._real_time_last_completion
+        dtreal = datetime.now(timezone.utc) - self._real_time_last_completion
         if dtreal > self.DT_REAL_FOR_COMPLETIONS:
             return True
 
@@ -147,9 +146,13 @@ class Processor:
         return False
 
     def _add_trajectories(self, final: bool = False) -> None:
+        delta = self._fix_count_total - self._fix_count_last_completion
         self._fix_count_last_completion = self._fix_count_total
+        last_completion_fix_counter.labels(source=self.name).inc(delta)
         self._fix_time_last_completion = self._fix_time_latest
-        self._real_time_last_completion = datetime.now()
+        last_completion_fix_time_gauge.labels(source=self.name).set(self._fix_time_latest.timestamp())
+        self._real_time_last_completion = datetime.now(timezone.utc)
+        last_completion_time_gauge.labels(source=self.name).set_to_current_time()
         self._trajectories += self._identify_complete_trajectories(final)
 
     def _log_positions(self, fixes_processed: int) -> None:
@@ -200,49 +203,17 @@ class Processor:
                         # all earlier delivery tags.)
                         self._process_ack_nack(delivery_tag, delete_trajectories=False)
 
-                    case rmq.RPCMessage() as msg:
-                        if msg.endpoint == self.liveness_endpoint:
-                            LivenessChecker.send_reply(
-                                self.rmq, msg,
-                                status=self._liveness_status(),
-                                info=self._liveness_info()
-                            )
-                        else:
-                            logger.warning(
-                                'unknown RPC endpoint: %s', msg.endpoint
-                            )
-
                     case _:
                         logger.warning(
                             'unexpected RMQ message "%s"', cmd.message
                         )
 
-    def _liveness_status(self) -> Liveness:
-        if self._ingester_failed:
-            return Liveness.INGESTER_DOWN
-        if self._ingester_slow:
-            return Liveness.INGESTER_SLOW
-        return Liveness.OK
-
-    def _liveness_info(self) -> LivenessResponse.Info:
-        return dict(
-            fix_count_total=self._fix_count_total,
-            fix_count_last_completion=self._fix_count_last_completion,
-            fix_time_latest=self._fix_time_latest,
-            fix_time_last_completion=self._fix_time_last_completion,
-            time_last_completion=self._real_time_last_completion,
-            trajectory_count=self._trajectory_count,
-            memory_usage=psutil.Process().memory_info().rss
-        )
-
     def _handle_ingester_status(
-            self, response: LivenessResponse
+            self, response: IngesterLivenessResponse
     ) -> bool:
         if response.status != Liveness.OK:
             logger.info('ingester has failed!')
-            self._ingester_failed = True
             return False
-        self._ingester_failed = False
 
         if not self.historical:
             return True
@@ -250,7 +221,7 @@ class Processor:
         # Flow control for historical jobs follows...
 
         # If the ingester hasn't ingested anything at all yet, just continue.
-        if response.info['last_ingested'] == 0:
+        if response.last_ingested == 0:
             return True
 
         # Collect a rolling sequence of trajectory counts and times for
@@ -258,8 +229,8 @@ class Processor:
         if len(self._ingester_trajectory_counts) > self.INGESTER_AVERAGING_SPAN:
             self._ingester_trajectory_counts = self._ingester_trajectory_counts[1:]
             self._ingester_ref_times = self._ingester_ref_times[1:]
-        self._ingester_trajectory_counts.append(info['last_ingested'])
-        self._ingester_ref_times.append(datetime.now())
+        self._ingester_trajectory_counts.append(response.last_ingested)
+        self._ingester_ref_times.append(datetime.now(timezone.utc))
 
         # Calculate the moving average ingestion rate.
         if len(self._ingester_trajectory_counts) > 1:
@@ -278,12 +249,10 @@ class Processor:
                 'ingester delta too great: %s - %s = %s - waiting...',
                 self._trajectory_count, self._ingester_trajectory_counts[-1], delta
             )
-            self._ingester_slow = True
             return False
 
         # If the ingester is not too far behind, we can send trajectories.
         # Calculate a good number to send based on the ingestion rate.
-        self._ingester_slow = False
         self._trajectory_tranche_size = round(
             int(5 * ingester_rate * self.ingester_liveness_interval), -2
         )
@@ -324,9 +293,12 @@ class Processor:
             cmd.lats, cmd.lons, cmd.alts, cmd.alts_gnss,
             cmd.headings, cmd.on_grounds
         )
+        fix_counter.labels(source=self.name).inc(len(cmd.source_ids))
+        latest_fix_time_gauge.labels(source=self.name).set(self._fix_time_latest.timestamp())
         return len(cmd.source_ids)
 
     def _trajectory_tranche_control(self, ntrajs: int) -> None:
+        # TODO: DO SOMETHING TO STOP THIS KICKING IN AFTER FILE DOWNLOADS...
         self._trajectory_tranche_progress += ntrajs
         if (
             self._trajectory_tranche_progress >= self._trajectory_tranche_size and
@@ -346,9 +318,11 @@ class Processor:
         self._done_pending = True
 
     def _send_trajectories(self, source_ids: list[str]) -> None:
+        old_count = self._trajectory_count
         self._trajectory_count = log_counts(
             logger, 'trajectories', self._trajectory_count, len(source_ids), 2
         )
+        delta = self._trajectory_count - old_count
 
         # Process a set of complete trajectories. If this doesn't work, then
         # the position fixes for the trajectory will remain in the database to
@@ -380,6 +354,7 @@ class Processor:
                 source=self.name,
                 trajectory_count=self._trajectory_count)
         )
+        trajectory_counter.labels(source=self.name).inc(delta)
         if message_number is not None:
             self._pending_rmq_messages[message_number] = source_ids
         if self.historical:

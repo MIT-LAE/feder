@@ -133,12 +133,11 @@ class TrajectoryBatch(Message):
 class Liveness(Enum):
     UNKNOWN = auto()
     OK = auto()
-    INGESTER_DOWN = auto()
-    INGESTER_SLOW = auto()
+    ERROR = auto()
 
 
 @dataclass
-class LivenessQuery(Message):
+class IngesterLivenessQuery(Message):
     MESSAGE_TAG = 'L'
 
     source: str
@@ -152,20 +151,19 @@ class LivenessQuery(Message):
 
 
 @dataclass
-class LivenessResponse(Message):
+class IngesterLivenessResponse(Message):
     MESSAGE_TAG = 'l'
-    Info = dict[str, int | float | str | datetime]
 
     source: str
     time: datetime
     status: Liveness
-    info: Info
+    last_ingested: int = 0
 
     def _pack(self, packer: Packer):
         packer.str(self.source)
         packer('>Q', int(self.time.timestamp()))
         packer('>B', self.status.value)
-        self._pack_info(packer)
+        packer('>q', self.last_ingested)
 
     @classmethod
     def _unpack(cls, unpacker: Unpacker) -> Self:
@@ -173,53 +171,14 @@ class LivenessResponse(Message):
             source=unpacker.str(),
             time=datetime.fromtimestamp(unpacker('>Q')),
             status=Liveness(unpacker('>B')),
-            info=cls._unpack_info(unpacker)
+            last_ingested=unpacker('>q')
         )
-
-    def _pack_info(self, packer: Packer):
-        packer('>B', len(self.info))
-        for k, v in self.info.items():
-            packer.str(k)
-            if isinstance(v, int):
-                packer('>B', ord('I'))
-                packer('>q', v)
-            elif isinstance(v, float):
-                packer('>B', ord('F'))
-                packer('>d', v)
-            elif isinstance(v, str):
-                packer('>B', ord('S'))
-                packer.str(v)
-            elif isinstance(v, datetime):
-                packer('>B', ord('D'))
-                packer('>L', int(v.timestamp()))
-            else:
-                raise ValueError('invalid info property in LivenessResponse')
-
-    @classmethod
-    def _unpack_info(cls, unpacker: Unpacker):
-        nentries = int(unpacker('>B'))
-        info = {}
-        for i in range(nentries):
-            k = unpacker.str()
-            tag = chr(unpacker('>B'))
-            match tag:
-                case 'I':
-                    v = unpacker('>q')
-                case 'F':
-                    v = unpacker('>d')
-                case 'S':
-                    v = unpacker.str()
-                case 'D':
-                    v = datetime.fromtimestamp(unpacker('>L'))
-                case _:
-                    raise ValueError('invalid info property in LivenessResponse')
-            info[k] = v
-        return info
 
 
 MESSAGE_TAG_DICT = {
     c.MESSAGE_TAG: c for c in [
-        Trajectory, TrajectoryBatch, LivenessQuery, LivenessResponse
+        Trajectory, TrajectoryBatch,
+        IngesterLivenessQuery, IngesterLivenessResponse
     ]
 }
 

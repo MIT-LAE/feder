@@ -127,6 +127,8 @@ class ContrailsAPISource(DateSource):
             process_df = process_df[::-1]
         for tup in process_df.itertuples(index=False):
             # One source position command per row.
+            if tup.flight_id is None or tup.timestamp is None:
+                continue
             self._source_ids.append(tup.flight_id)
             self._transponder_ids.append(tup.icao_address)
             self._times.append(tup.timestamp.to_pydatetime())
@@ -195,12 +197,17 @@ class ContrailsAPISource(DateSource):
                 # retrieve_error returns False if the error is unrecoverable.
                 if not self.retrieve_error(retrieval_time, df_or_status, retry=True):
                     break
-                if self.wait_for(datetime.now() + timedelta(minutes=5)):
+                if self.wait_for(datetime.now(timezone.utc) + timedelta(minutes=5)):
                     break
                 retries += 1
                 continue
 
             logger.info('processing data for %s...', log_time)
+            # TODO: Fix this.
+            # Stream data to temporary file.
+            # Use PyArrow to read in batches.
+            # Process one batch at a time as a DataFrame.
+            # https://stackoverflow.com/a/72746856
             for cmd in self.process_df(df_or_status):
                 if self.stopped:
                     return

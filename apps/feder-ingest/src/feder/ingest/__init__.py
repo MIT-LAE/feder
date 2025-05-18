@@ -7,12 +7,14 @@ import click
 from feder.server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE,
-    LivenessChecker, Consumer, Message, TrajectoryBatch
+    IngesterLivenessChecker, Consumer, Message, TrajectoryBatch,
+    PrometheusServer
 )
 
 from .commands import RMQCommand
 from .db_cache import DBCache
 from .processor import Processor
+from .monitoring import error_counter
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,11 @@ def run(debug: bool, config: str | None) -> None:
     # Process configuration file.
     cfg = Config(config)
 
+    # Start Prometheus HTTP server.
+    prom_server = PrometheusServer(
+        cfg.ingester_prometheus_port, cfg.prometheus_scrape_interval
+    )
+
     # Set up command queue.
     queue = PriorityQueue(10)
 
@@ -49,15 +56,14 @@ def run(debug: bool, config: str | None) -> None:
         ],
         wrapper_class=RMQCommand,
         rpc_client=True,
-        rpc_server=[LivenessChecker.endpoint_name(name)],
-        rpc_endpoints=LivenessChecker.rpc_endpoints(cfg)
+        rpc_server=[IngesterLivenessChecker.RPC_ENDPOINT_NAME],
+        rpc_endpoints=IngesterLivenessChecker.RPC_ENDPOINTS
     )
 
-    # Start all separate threads.
-    rmq.start()
+    db = None
+    processor = None
 
     # Signal handling for tidy cleanup.
-    processor = None
     def stop(_signum, _frame):
         if processor is None:
             return
@@ -65,26 +71,43 @@ def run(debug: bool, config: str | None) -> None:
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
-    db = None
+    # NOTE: Any errors that occur up to this point are considered start-up
+    # errors and should be diagnosed via logging. All errors after this point
+    # cause an increment in the Prometheus error_counter metric so that they
+    # can be captured by monitoring alerts.
+
     try:
+        # Connect to RabbitMQ.
+        rmq.start()
+
         # Set up database connection cache.
         db = DBCache(cfg.data_directory)
 
         # Process messages from queue.
         processor = Processor(cfg, db, queue, rmq)
         processor.run()
+    except Exception:
+        logger.exception('unhandled exception in ingester')
+        error_counter.labels(source='ingester').inc()
+
+        # Ensure that the metric update makes it upstream.
+        prom_server.wait_for_scrape()
     finally:
         if db is not None:
             db.close()
 
-    # If we get here, the ingester has already stopped, so we just need to
-    # clean up RabbitMQ.
-    rmq.stop()
+        # If we get here, the ingester has already stopped, so we just need to
+        # clean up RabbitMQ.
+        rmq.stop()
+
+    # Shut down Prometheus HTTP server.
+    prom_server.shutdown()
 
     # Drain the command queue to prevent any threads that want to write to it
     # getting stuck.
     while not queue.empty():
         queue.get()
+
 
 if __name__ == '__main__':
     run()

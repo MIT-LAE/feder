@@ -1,21 +1,19 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 from queue import PriorityQueue
 from threading import Event
 from typing import cast
 
-import psutil
-
 from feder.server import (
-    Config, RMQ, LivenessChecker,
-    Liveness, LivenessResponse, TrajectoryBatch, log_counts
+    Config, RMQ, IngesterLivenessChecker,
+    Liveness, TrajectoryBatch, log_counts
 )
-from feder.server.messages import LivenessQuery
 import feder.server.rmq as rmq
 
 from .commands import RMQCommand
 from .db_cache import DBCache
+from .monitoring import trajectory_counter, batch_time_gauge
 
 
 logger = logging.getLogger(__name__)
@@ -39,7 +37,7 @@ class Processor:
         self._immediate_stop = Event()
         self._rx_trajectory_counts: defaultdict[str, int] = defaultdict(int)
         self._rx_batch_times = {}
-        self._last_statistics_cleanup = datetime.now()
+        self._last_statistics_cleanup = datetime.now(timezone.utc)
 
     def run(self):
         done = False
@@ -72,59 +70,46 @@ class Processor:
                             for db in dbs_used:
                                 db.commit()
 
-                            # Make sure this is monotonically increasing! If
-                            # batches get delivered out of order and we don't
-                            # do this, it can confuse the flow control logic
-                            # in the receiver.
-                            self._rx_trajectory_counts[batch.source] = max(
-                                batch.trajectory_count,
-                                self._rx_trajectory_counts[batch.source]
-                            )
-                            self._rx_batch_times[batch.source] = datetime.now()
+                            # Make sure the trajectory count is monotonically
+                            # increasing! If batches get delivered out of
+                            # order and we don't do this, it can confuse the
+                            # flow control logic in the receiver.
+                            old_count = self._rx_trajectory_counts[batch.source]
+                            new_count = max(batch.trajectory_count, old_count)
+                            self._rx_trajectory_counts[batch.source] = new_count
+                            self._rx_batch_times[batch.source] = datetime.now(timezone.utc)
+
+                            # Update monitoring metrics.
+                            trajectory_counter.labels(source=batch.source).inc(new_count - old_count)
+                            batch_time_gauge.labels(source=batch.source).set_to_current_time()
+
                         case rmq.RPCMessage() as msg:
                             match msg.endpoint:
                                 case 'liveness:ingester':
-                                    LivenessChecker.send_reply(
+                                    # This request is from a receiver so we
+                                    # send the last ingested count for that
+                                    # source as extra information.
+                                    IngesterLivenessChecker.send_reply(
                                         self.rmq, msg,
                                         status=Liveness.OK,
-                                        info=self._liveness_info(msg.message)
+                                        last_ingested=self._rx_trajectory_counts.get(
+                                            msg.message.source, 0
+                                        )
                                     )
                                 case _:
                                     logger.warning(
                                         'unknown RPC endpoint: %s', msg.endpoint
                                     )
 
-    def _liveness_info(self, msg: LivenessQuery) -> LivenessResponse.Info:
-        match msg.source:
-            case 'monitor':
-                # For the monitor, we return all trajectory counts and last
-                # batch times for all receivers we know about.
-                info = {}
-                for s, v in self._rx_trajectory_counts.items():
-                    info['trajectory-count:' + s] = v
-                for s, v in self._rx_batch_times.items():
-                    info['time:' + s] = v
-                info['memory_usage'] = psutil.Process().memory_info().rss
-                return info
-
-            case _:
-                # This request is from the receiver for a single source, so we
-                # just send the last ingested count for that source.
-                return dict(
-                    last_ingested=self._rx_trajectory_counts.get(
-                        msg.source, 0
-                    )
-                )
-
     def _statistics_cleanup_due(self) -> bool:
         return (
-            datetime.now() - self._last_statistics_cleanup >
+            datetime.now(timezone.utc) - self._last_statistics_cleanup >
             self.STATISTICS_CLEAN_UP_INTERVAL
         )
 
     def _clean_up_statistics(self) -> None:
         to_delete = set()
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         self._last_statistics_cleanup = now
         for s, t in self._rx_batch_times.items():
             if now - t > self.STATISTICS_CLEAN_UP_INTERVAL:

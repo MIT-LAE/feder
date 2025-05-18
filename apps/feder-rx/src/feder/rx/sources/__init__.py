@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import glob
 import itertools
 import logging
@@ -62,7 +62,7 @@ class Source(Thread):
         self._wait_finished.set()
 
     def wait_for(self, t: datetime) -> bool:
-        delta = t - datetime.now()
+        delta = t - datetime.now(timezone.utc)
         if delta < timedelta(0):
             return self.stopped
         self._wait_finished.wait(delta.total_seconds())

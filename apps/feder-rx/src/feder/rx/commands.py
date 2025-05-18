@@ -3,7 +3,7 @@ from datetime import datetime
 import functools
 
 import feder.server.rmq as rmq
-from feder.server.messages import Liveness, LivenessResponse
+from feder.server.messages import IngesterLivenessResponse
 
 
 # Classes representing different commands that go into the internal command
@@ -49,7 +49,7 @@ class SourceDoneCommand(Command):
 
 @dataclass
 class IngesterStatusCommand(Command):
-    response: LivenessResponse
+    response: IngesterLivenessResponse
     response_received: datetime
 
     def priority(self) -> rmq.Message.Priority:

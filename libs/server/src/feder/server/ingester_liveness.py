@@ -1,46 +1,43 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from queue import Queue
 from threading import Thread, Event
 from typing import Any, cast
 
-from feder.common import DataSource
-from .config import Config
 from .rmq import RMQ, RPCEndpoint, RPCMessage
-from .messages import LivenessQuery, LivenessResponse, Liveness
+from .messages import (
+    IngesterLivenessQuery, IngesterLivenessResponse, Liveness
+)
 
 
 logger = logging.getLogger(__name__)
 
 
-class LivenessChecker(Thread):
-    @staticmethod
-    def endpoint_name(name: str) -> str:
-        return 'liveness:' + name
+class IngesterLivenessChecker(Thread):
+    RPC_ENDPOINT_NAME = 'liveness:ingester'
 
-    @staticmethod
-    def rpc_endpoints(cfg: Config) -> list[RPCEndpoint]:
-        names = ['ingester'] + [f'rx-{s}' for s in DataSource if cfg.enabled(s)]
-        return [
-            RPCEndpoint(
-                LivenessChecker.endpoint_name(name),
-                LivenessQuery,
-                LivenessResponse
-            )
-            for name in names
-        ]
+    RPC_ENDPOINTS = [
+        RPCEndpoint(
+            RPC_ENDPOINT_NAME,
+            IngesterLivenessQuery,
+            IngesterLivenessResponse
+        )
+    ]
 
     @staticmethod
     def send_reply(
             rmq: RMQ,
             query: RPCMessage,
-            info: LivenessResponse.Info,
-            status: Liveness = Liveness.OK
+            status: Liveness = Liveness.OK,
+            last_ingested: int = 0
     ):
         rmq.rpc_reply(
             query,
-            LivenessResponse(
-                source=rmq.name, time=datetime.now(), status=status, info=info
+            IngesterLivenessResponse(
+                source=rmq.name,
+                time=datetime.now(timezone.utc),
+                status=status,
+                last_ingested=last_ingested
             )
         )
 
@@ -59,7 +56,6 @@ class LivenessChecker(Thread):
         super().__init__(*args, **kwargs)
         self.rmq = rmq
         self.name = name
-        self.endpoint = self.endpoint_name(name)
         self.out_queue = out_queue
         self.status_command = status_command
         self.timeout_interval = timeout_interval
@@ -68,18 +64,16 @@ class LivenessChecker(Thread):
         self.status_extra_kwargs = status_extra_kwargs if status_extra_kwargs is not None else {}
 
         self._stopped = False
+        self._live = False
         self._correlation_id: str | None = None
         self._waiting: Event | None = None
         self._client_waiting = False
         self._last_response_received: datetime | None = None
-        self._last_response: LivenessResponse | None = None
+        self._last_response: IngesterLivenessResponse | None = None
 
     @property
     def live(self):
-        return (
-            self._last_response is not None and
-            self._last_response.status == Liveness.OK
-        )
+        return self._last_response is not None and self._live
 
     @property
     def last_response_received(self) -> datetime:
@@ -91,11 +85,6 @@ class LivenessChecker(Thread):
         assert self._last_response is not None
         return self._last_response.time
 
-    @property
-    def response_info(self) -> LivenessResponse.Info:
-        assert self._last_response is not None
-        return self._last_response.info
-
     def _set_status(self):
         self.out_queue.put(
             self.status_command(
@@ -106,9 +95,9 @@ class LivenessChecker(Thread):
         )
 
     def _callback(self, correlation_id: str, rpc_message: Any):
-        logger.debug('liveness response from %s', self.endpoint)
-        self._last_response = cast(LivenessResponse, rpc_message)
-        self._last_response_received = datetime.now()
+        logger.debug('liveness response from %s', self.RPC_ENDPOINT_NAME)
+        self._last_response = cast(IngesterLivenessResponse, rpc_message)
+        self._last_response_received = datetime.now(timezone.utc)
         if (
                 not self._stopped and
                 self._correlation_id is not None and
@@ -120,7 +109,7 @@ class LivenessChecker(Thread):
             self._waiting.set()
 
     def _error_callback(self, correlation_id: str, reason: str):
-        logger.warning('liveness timeout from %s', self.endpoint)
+        logger.warning('liveness timeout from %s', self.RPC_ENDPOINT_NAME)
         if (
                 not self._stopped and
                 self._correlation_id is not None and
@@ -128,6 +117,7 @@ class LivenessChecker(Thread):
                 self._waiting is not None
         ):
             self._correlation_id = None
+            self._last_response = None
             self._live = False
             self._waiting.set()
 
@@ -139,9 +129,9 @@ class LivenessChecker(Thread):
     def run(self):
         while not self._stopped:
             self._waiting = Event()
-            query = LivenessQuery(source=self.rmq.name)
+            query = IngesterLivenessQuery(source=self.rmq.name)
             self._correlation_id = self.rmq.send_rpc(
-                self.endpoint, query,
+                self.RPC_ENDPOINT_NAME, query,
                 self._callback,
                 error_callback=self._error_callback,
                 timeout=self.timeout_interval

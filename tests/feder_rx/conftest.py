@@ -17,15 +17,8 @@ host = "none"
 username = "none"
 password = "none"
 
-[monitoring]
-heartbeat-interval = 30
-from-email = "feder-monitor@mit.edu"
-from-name = "Feder Monitoring"
-to-email = "ian@skybluetrades.net"
-to-name = "Ian Ross"
-mail-backend = "dummy" # for development, normally, default = "mailjet"
-mailjet-api-key = "<fill in API key>"
-mailjet-secret-key = "<fill in secret key>"
+[ingester]
+prometheus-port = 19001
 
 [sources]
 # Defaults for all sources.
@@ -34,25 +27,22 @@ completion-interval = 60
 data-lag = 0
 
 [source.contrails-api]
-enabled = false
 data-lag = "48 hours"
 api-key = "<fill in API key>"
+prometheus-port = 19002
 
 [source.flightaware]
-enabled = false
 username = "<fill in username>"
 password = "<fill in password>"
+prometheus-port = 19003
 
 [source.opensky]
-enabled = false
 api-key = "<fill in API key>"
+prometheus-port = 19004
 
 [source.opensky-state-vectors]
-enabled = false
 api-key = "<fill in API key>"
-
-[source.csv]
-enabled = true
+prometheus-port = 19005
 """
 
 

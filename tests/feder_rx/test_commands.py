@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from feder.rx.commands import (
     IngesterStatusCommand,
@@ -20,7 +20,7 @@ def test_command_ordering():
         on_ground=False
     )
     source_error = SourceErrorCommand('this is an error', stop=True)
-    source_done = SourceDoneCommand(datetime.now())
+    source_done = SourceDoneCommand(datetime.now(timezone.utc))
     ingester_status = IngesterStatusCommand(live=True)
     rmq_ack = RMQCommand(message=rmq.AckMessage(delivery_tag=2))
     rmq_nack = RMQCommand(message=rmq.NackMessage(delivery_tag=1))

@@ -1,0 +1,14 @@
+[Unit]
+Description=Google Prometheus server
+After=network-online.target
+
+[Service]
+Environment=GOOGLE_APPLICATION_CREDENTIALS=/home/mcast/misc-credentials/prometheus-credentials.json
+Restart=on-failure
+ExecStart=/home/mcast/bin/prometheus \
+  --config.file=/home/mcast/misc-config/g01-prometheus.yaml \
+  --storage.tsdb.path=/data/mcast/prometheus/data \
+  --storage.tsdb.retention.time=30d
+
+[Install]
+WantedBy=multi-user.target

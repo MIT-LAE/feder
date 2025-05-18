@@ -10,10 +10,12 @@ import click
 
 from feder.server import (
     logging_setup, Config, RMQ, rmq_parameters,
-    RMQ_TRAJECTORY_EXCHANGE, Message, LivenessChecker
+    RMQ_TRAJECTORY_EXCHANGE, Message, IngesterLivenessChecker,
+    PrometheusServer
 )
 
 from .commands import IngesterStatusCommand, RMQCommand
+from .monitoring import error_counter
 from .sources.contrails_api import ContrailsAPISource
 from .sources.csv import CSVSource
 from .sources.flightaware import FlightAwareSource
@@ -33,7 +35,7 @@ SOURCES = [
     OpenSkyStateVectorSource
 ]
 
-SOURCES_BY_NAME = {s.name(): s for s in SOURCES}
+SOURCES_BY_NAME = {s.source_name(): s for s in SOURCES}
 
 MAX_OUTSTANDING_POSITIONS = 500
 
@@ -65,7 +67,7 @@ MAX_OUTSTANDING_POSITIONS = 500
 )
 @click.argument(
     'source-name',
-    type=click.Choice([s.name() for s in SOURCES]),
+    type=click.Choice([s.source_name() for s in SOURCES]),
     required=True
 )
 @click.argument('glob_args', nargs=-1)
@@ -117,18 +119,19 @@ def run(
             sys.exit(1)
     historical = len(glob_args) != 0 or start_time is not None
 
-    # Check that the source is enabled for live updates (signalled by not
-    # passing in any arguments to run as a historical update process).
-    # TODO: Might be better not to do this, but use systemd's enable/disable
-    # functionality?
-    if not historical and not cfg.enabled(source.SOURCE):
-        logger.critical('source "%s" not enabled for live updates', source_name)
-        sys.exit(1)
-
     # For historical processes, make a unique name.
     name = source_name
     if historical:
         name += f'-{os.getpid()}'
+
+    # Start Prometheus HTTP server for non-historical processes.
+    prom_server = None
+    if not historical:
+        prom_port = cfg.prometheus_port(source.SOURCE)
+        if prom_port is not None:
+            prom_server = PrometheusServer(
+                prom_port, cfg.prometheus_scrape_interval
+            )
 
     # Set up the command queue used to decouple the data source handler and
     # trajectory completion and RabbitMQ connection handling. We need to
@@ -161,9 +164,6 @@ def run(
 
         # Set up RabbitMQ handler.
         name=f'rx-{name}'
-        rpc_server = []
-        if not historical:
-            rpc_server = [LivenessChecker.endpoint_name(name)]
         rmq = RMQ(
             name=name,
             parameters=rmq_parameters(cfg),
@@ -172,8 +172,7 @@ def run(
             exchanges=[RMQ_TRAJECTORY_EXCHANGE],
             wrapper_class=RMQCommand,
             rpc_client=True,
-            rpc_server=rpc_server,
-            rpc_endpoints=LivenessChecker.rpc_endpoints(cfg)
+            rpc_endpoints=IngesterLivenessChecker.RPC_ENDPOINTS
         )
 
         # Set up data source handler.
@@ -184,7 +183,7 @@ def run(
         )
 
         # Set up ingester liveness checking.
-        ingester_liveness = LivenessChecker(
+        ingester_liveness = IngesterLivenessChecker(
             rmq, 'ingester', command_queue, IngesterStatusCommand,
             ok_check_interval=1
         )
@@ -220,12 +219,16 @@ def run(
             # Process messages from queue.
             processor = Processor(
                 cfg, data_source.SOURCE, name, historical, db, command_queue,
-                rmq, rpc_server[0] if len(rpc_server) > 0 else None,
-                data_source.control, ingester_liveness.ok_check_interval
+                rmq, data_source.control, ingester_liveness.ok_check_interval
             )
             processor.run()
-    except Exception as e:
-        logger.exception('fatal exception: %s', e)
+    except Exception:
+        logger.exception('unhandled exception in receiver')
+        if prom_server is not None:
+            # Ensure that the metric update makes it upstream.
+            error_counter.labels(source=name).inc()
+            prom_server.wait_for_scrape()
+
     finally:
         # If we get here, the process is stopped, so we need to clean up the
         # worker threads and RabbitMQ.
@@ -235,6 +238,10 @@ def run(
             ingester_liveness.stop()
         if rmq is not None:
             rmq.stop()
+
+        # Shut down Prometheus HTTP server.
+        if prom_server is not None:
+            prom_server.shutdown()
 
         # Drain the command queue to prevent any threads that want to write to
         # it getting stuck.

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import logging
 from queue import PriorityQueue
@@ -50,7 +50,7 @@ class Processor:
 
             case StatusCommand() as cmd:
                 self._statuses[cmd.source] = cmd.info
-                self._last_updates[cmd.source] = datetime.now()
+                self._last_updates[cmd.source] = datetime.now(timezone.utc)
 
     def update(self):
         # Update stored data from current status information.

@@ -1,0 +1,23 @@
+[Unit]
+Description=RabbitMQ broker
+BindsTo=docker.service
+After=docker.service
+
+[Service]
+Environment=DOCKER_HOST=unix:///run/user/%U/docker.sock
+Environment=IMG=rabbitmq:4.1
+Restart=on-failure
+RestartSec=10
+ExecStartPre=-/usr/bin/docker kill %N
+ExecStartPre=-/usr/bin/docker rm %N
+ExecStart=/usr/bin/docker run --name %N \
+    --hostname %H \
+    --publish 5672:5672 \
+    --mount type=bind,src=/data/mcast/rabbitmq/data,dst=/var/lib/rabbitmq \
+    --mount type=bind,src=/data/mcast/rabbitmq/logs,dst=/var/log/rabbitmq \
+    ${IMG}
+ExecStop=/usr/bin/docker stop %N
+ExecReload=/usr/bin/docker kill --signal="SIGHUP" %N
+
+[Install]
+WantedBy=multi-user.target

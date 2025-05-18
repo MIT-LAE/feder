@@ -12,7 +12,7 @@ dependencies = [
     "feder-common",
     "feder-server",
     "pandas>=2.2.3",
-    "psutil>=7.0.0",
+    "prometheus-client>=0.21.1",
     "pyarrow>=19.0.1",
     "requests>=2.32.3",
 ]
