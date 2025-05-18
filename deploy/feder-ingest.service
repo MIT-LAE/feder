@@ -1,0 +1,13 @@
+[Unit]
+Description=Feder ingester
+After=network-online.target
+
+[Service]
+Environment=FEDER_CONFIG=/home/mcast/misc-config/feder-config.toml
+# Restart=on-failure
+Restart=no
+ExecStart=/home/mcast/.local/bin/uv --directory /home/mcast/code/feder \
+  run feder-ingest
+
+[Install]
+WantedBy=multi-user.target
