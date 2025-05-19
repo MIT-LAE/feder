@@ -36,6 +36,12 @@ last_completion_time_gauge = Gauge(
     ['source']
 )
 
+ingester_liveness_gauge = Gauge(
+    'feder_ingester_liveness',
+    'Ingester liveness, split by source',
+    ['source']
+)
+
 error_counter = Counter(
     'feder_error_count',
     'Receiver errors',

@@ -11,6 +11,13 @@ from .utils import (
 
 
 class DataSource(Enum):
+    """Flight data sources known to Feder.
+
+    Receivers for only some of these are implemented so far: historical CSV
+    files from the FAST system are ingested as data source FLIGHTAWARE, while
+    new data is received from the Contrails API Spire ADS-B source as records
+    of data source type CONTRAILS_API.
+    """
     FLIGHTAWARE = 1
     CONTRAILS_API = 2
     OPENSKY = 3
@@ -22,6 +29,17 @@ class DataSource(Enum):
 
 @dataclass
 class Point:
+    """A single point in a trajectory.
+
+    Attributes:
+        time: The time of the point as a Python UTC datetime.
+        lon: Longitude in decimal degrees.
+        lat: Latitude in decimal degrees.
+        alt: Altitude in meters, or None if not available.
+        alt_gnss: GNSS altitude in meters, or None if not available.
+        heading: Heading in degrees, or None if not available.
+        on_ground: True if the aircraft is on the ground, False otherwise.
+    """
     POINT_FORMAT = '>Lddddd?'
 
     time: datetime
@@ -76,6 +94,18 @@ class Point:
 
 @dataclass
 class Trajectory:
+    """A single flight trajectory.
+
+    Attributes:
+        source: The data source for the trajectory.
+        source_id: The unique source-specific ID of the trajectory.
+        transponder_id: The ADS-B transponder ID of the aircraft.
+        orig: The ICAO origin airport code.
+        dest: The ICAO destination airport code.
+        callsign: The callsign of the aircraft.
+        aircraft_type: The ICAO type of the aircraft.
+        points: A list of points in the trajectory.
+    """
     source_id: str
     source: DataSource
     transponder_id: str
@@ -96,6 +126,7 @@ class Trajectory:
         packer.str(self.callsign)
         packer.str(self.aircraft_type)
         Point.pack(self.points, packer=packer)
+        return packer.data()
 
     @classmethod
     def unpack(
@@ -128,13 +159,13 @@ class Trajectory:
         for p in self.points:
             points[p.time] = p
         weights = [len(self.points)] + [len(o.points) if o is not None else 0 for o in others]
-        return Trajectory(
+        return type(self)(
             source=self.source,
             source_id=self.source_id,
-            transponder_id = _majority(weights, 'transponder_id', self, *others),
+            transponder_id = _majority(weights, 'transponder_id', self, *others) or '',
             orig = _majority(weights, 'orig', self, *others),
             dest = _majority(weights, 'dest', self, *others),
-            callsign = _majority(weights, 'callsign', self, *others),
+            callsign = _majority(weights, 'callsign', self, *others) or '',
             aircraft_type = _majority(weights, 'aircraft_type', self, *others),
             points = sorted(points.values(), key=attrgetter('time'))
         )
@@ -142,8 +173,7 @@ class Trajectory:
 
 def _majority(
         weights: list[int],
-        attr: str, *trajs:
-        list[Trajectory | None]
+        attr: str, *trajs: Trajectory | None
 ) -> str | None:
     values = [getattr(t, attr) if t is not None else None for t in trajs]
     counts = Counter()

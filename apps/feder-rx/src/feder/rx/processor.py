@@ -19,7 +19,8 @@ from .commands import (
 from .db import DB
 from .monitoring import (
     fix_counter, last_completion_fix_counter, trajectory_counter,
-    latest_fix_time_gauge, last_completion_fix_time_gauge, last_completion_time_gauge
+    latest_fix_time_gauge, last_completion_fix_time_gauge, last_completion_time_gauge,
+    ingester_liveness_gauge, error_counter
 )
 
 
@@ -213,9 +214,12 @@ class Processor:
     ) -> bool:
         if response is None:
             logger.info('ingester has failed!')
+            if not self.historical:
+                ingester_liveness_gauge.labels(source=self.name).set(0)
             return False
 
         if not self.historical:
+            ingester_liveness_gauge.labels(source=self.name).set(1)
             return True
 
         # Flow control for historical jobs follows...

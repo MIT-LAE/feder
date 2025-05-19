@@ -10,6 +10,11 @@ from .models import DataSource, Point, Trajectory
 
 
 class QueryType(Enum):
+    """Spatial query types.
+
+    CROSSES: Find trajectories that cross a bounding box.
+    CONTAINS: Find trajectories contained within a bounding box.
+    """
     CROSSES = auto()
     CONTAINS = auto()
 
@@ -73,6 +78,9 @@ class DB:
             min_alt: float | None = None,
             max_alt: float | None = None,
             source: DataSource | None = None,
+            callsign: str | None = None,
+            orig: str | None = None,
+            dest: str | None = None,
             query_type: QueryType = QueryType.CROSSES
     ) -> Generator[Trajectory, None, None]:
         if max_time < min_time:
@@ -123,6 +131,20 @@ class DB:
             if min_alt is not None and max_alt is not None:
                 id_conditions.append(('min_altitude >= ?', min_alt))
                 id_conditions.append(('max_altitude <= ?', max_alt))
+
+        def string_condition(field_name: str, value_or_pattern: str | None):
+            if value_or_pattern is not None:
+                if value_or_pattern.find('*') != -1:
+                    id_conditions.append((
+                        f'{field_name} LIKE ?', value_or_pattern.replace('*', '%')
+                    ))
+                else:
+                    id_conditions.append((f'{field_name} = ?', value_or_pattern))
+
+        string_condition('callsign', callsign)
+        string_condition('orig', orig)
+        string_condition('dest', dest)
+
         id_sql = (
             'SELECT id FROM trajectory_index WHERE ' +
             ' AND '.join(p[0] for p in id_conditions)
