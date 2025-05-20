@@ -1,3 +1,5 @@
+"""Internal utilities for packing and unpacking messages."""
+
 from io import BytesIO
 import struct
 
@@ -18,7 +20,7 @@ def milli(x):
 
 
 class Packer:
-    """Helper class to pack messages using Python's struct."""
+    """Helper class to pack messages using Python's `struct`."""
 
     def __init__(self):
         self._buf = BytesIO()
@@ -40,7 +42,7 @@ class Packer:
 
 
 class Unpacker:
-    """Helper class to unpack messages using Python's struct."""
+    """Helper class to unpack messages using Python's `struct`."""
 
     def __init__(self, data: bytes):
         self._buf = BytesIO(data)

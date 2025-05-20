@@ -9,7 +9,7 @@ def get_flights(
         time1: datetime, time2: datetime,
         source: DataSource | None = None
 ) -> list[Trajectory]:
-    """"Simplified flight query.
+    """Simplified flight query.
 
     Queries the database for flights between two times, optionally restricting
     to a selected data source.
@@ -53,8 +53,8 @@ def flight_query(
     TODO: More explanation.
     TODO: Explain (and implement!) data source handling.
 
-    Parmeters
-    ---------
+    Parameters
+    ----------
     min_time : datetime
         Query start time (required).
     max_time : datetime

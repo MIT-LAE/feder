@@ -44,14 +44,14 @@ shell:
 
 ``` shell
 pip install /home/mcast/feder/dist/latest.whl
-cp /home/mcast/feder/default-config.toml ~/.config/feder.toml
+export FEDER_DATA_DIR=/home/mcast/data/feder
 ```
 
 and then this in Python:
 
 ``` python
 from datetime import datetime
-from feder.api import get_flights
+from feder import get_flights
 get_flights(time=datetime(2025, 3, 20, 18, 0), lat=(35.0, 40.0), lon=(-100.0, -95.0), limit=10)
 ```
 

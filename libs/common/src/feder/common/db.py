@@ -1,3 +1,7 @@
+"""Feder database access. Most of the contents of this module are for internal
+use only, but the `QueryType` enumeration is needed for setting the spatial
+overlap characteristics of queries."""
+
 import bz2
 from datetime import datetime, date
 from enum import Enum, auto
@@ -10,16 +14,15 @@ from .models import DataSource, Point, Trajectory
 
 
 class QueryType(Enum):
-    """Spatial query types.
-
-    CROSSES: Find trajectories that cross a bounding box.
-    CONTAINS: Find trajectories contained within a bounding box.
-    """
+    """Spatial query types."""
     CROSSES = auto()
+    """Find trajectories that cross a bounding box."""
     CONTAINS = auto()
+    """Find trajectories contained within a bounding box."""
 
 
 class DB:
+    """Database access class. @private"""
     def __init__(
             self,
             data_dir: str,

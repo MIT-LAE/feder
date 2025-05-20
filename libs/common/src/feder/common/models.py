@@ -1,3 +1,5 @@
+"""Common data models used throughout the Feder system."""
+
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,17 +13,15 @@ from .utils import (
 
 
 class DataSource(Enum):
-    """Flight data sources known to Feder.
-
-    Receivers for only some of these are implemented so far: historical CSV
-    files from the FAST system are ingested as data source FLIGHTAWARE, while
-    new data is received from the Contrails API Spire ADS-B source as records
-    of data source type CONTRAILS_API.
-    """
+    """Flight data sources known to Feder."""
     FLIGHTAWARE = 1
+    """Historical CSV files from the FAST system."""
     CONTRAILS_API = 2
+    """Contrails API Spire ADS-B source."""
     OPENSKY = 3
+    """OpenSky simplified trajectories source. *[NOT YET IMPLEMENTED]*"""
     OPENSKY_STATE_VECTORS = 4
+    """OpenSky state vectors source. *[NOT YET IMPLEMENTED]*"""
 
     def __str__(self):
         return self.name.lower().replace('_', '-')
@@ -29,35 +29,34 @@ class DataSource(Enum):
 
 @dataclass
 class Point:
-    """A single point in a trajectory.
+    """A single point in a trajectory."""
 
-    Attributes:
-        time: The time of the point as a Python UTC datetime.
-        lon: Longitude in decimal degrees.
-        lat: Latitude in decimal degrees.
-        alt: Altitude in meters, or None if not available.
-        alt_gnss: GNSS altitude in meters, or None if not available.
-        heading: Heading in degrees, or None if not available.
-        on_ground: True if the aircraft is on the ground, False otherwise.
-    """
-    POINT_FORMAT = '>Lddddd?'
+    _POINT_FORMAT = '>Lddddd?'
 
     time: datetime
+    """The time of the point as a Python UTC datetime."""
     lon: float
+    """Longitude in decimal degrees."""
     lat: float
+    """Latitude in decimal degrees."""
     alt: float | None
+    """Altitude in meters, or None if not available."""
     alt_gnss: float | None
+    """GNSS altitude in meters, or None if not available."""
     heading: float | None
+    """Heading in degrees, or None if not available."""
     on_ground: bool
+    """True if the aircraft is on the ground, False otherwise."""
 
     @classmethod
     def pack(cls, points: list[Self], packer: Packer | None = None) -> bytes:
+        """Pack to binary data. @private"""
         if packer is None:
             packer = Packer()
         packer('>H', len(points))
         for p in points:
             packer(
-                cls.POINT_FORMAT,
+                cls._POINT_FORMAT,
                 int(p.time.timestamp()),
                 p.lon, p.lat,
                 encode_opt_float(p.alt),
@@ -73,6 +72,7 @@ class Point:
             data: bytes | None,
             unpacker: Unpacker | None = None
     ) -> list[Self]:
+        """Unpack from binary data. @private"""
         if data is None and unpacker is None:
             raise ValueError('must provide data or unpacker to Point.unpack')
         if unpacker is None:
@@ -80,7 +80,7 @@ class Point:
         npoints = unpacker('>H')
         points = []
         for i in range(npoints):
-            pt = unpacker(cls.POINT_FORMAT, multiple=True)
+            pt = unpacker(cls._POINT_FORMAT, multiple=True)
             points.append(cls(
                 time=datetime.fromtimestamp(pt[0]),
                 lon=milli(pt[1]), lat=milli(pt[2]),
@@ -94,28 +94,27 @@ class Point:
 
 @dataclass
 class Trajectory:
-    """A single flight trajectory.
+    """A single flight trajectory."""
 
-    Attributes:
-        source: The data source for the trajectory.
-        source_id: The unique source-specific ID of the trajectory.
-        transponder_id: The ADS-B transponder ID of the aircraft.
-        orig: The ICAO origin airport code.
-        dest: The ICAO destination airport code.
-        callsign: The callsign of the aircraft.
-        aircraft_type: The ICAO type of the aircraft.
-        points: A list of points in the trajectory.
-    """
     source_id: str
+    """The data source for the trajectory."""
     source: DataSource
+    """The unique source-specific ID of the trajectory."""
     transponder_id: str
+    """The ADS-B transponder ID of the aircraft."""
     orig: str | None
+    """The ICAO origin airport code."""
     dest: str | None
+    """The ICAO destination airport code."""
     callsign: str
+    """The callsign of the aircraft."""
     aircraft_type: str | None
+    """The ICAO type of the aircraft."""
     points: list[Point]
+    """A list of points in the trajectory."""
 
     def pack(self, packer: Packer | None = None) -> bytes:
+        """Pack to binary data. @private"""
         if packer is None:
             packer = Packer()
         packer('>B', self.source.value)
@@ -134,6 +133,7 @@ class Trajectory:
             data: bytes | None,
             unpacker: Unpacker | None = None
     ) -> Self:
+        """Unpack from binary data. @private"""
         if data is None and unpacker is None:
             raise ValueError('must provide data or unpacker to Trajectory.unpack')
         if unpacker is None:
@@ -150,6 +150,10 @@ class Trajectory:
         )
 
     def merge(self, *others: Self | None) -> Self:
+        """Merge trajectories. @private
+
+        Trajectory points are combined in time order, and metadata values are
+        combined using majority voting between the trajectories."""
         points = {}
         for o in others:
             if o is None:
