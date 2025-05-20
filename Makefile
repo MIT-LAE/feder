@@ -1,5 +1,5 @@
 DOC_MODULES=feder !feder.common.utils
-DOC_LOGO=/lae-logo.png
+DOC_LOGO=/pages/iross/feder/lae-logo.png
 
 .PHONY: dist docs doc-server
 
