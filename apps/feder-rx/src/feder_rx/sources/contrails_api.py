@@ -224,6 +224,11 @@ class ContrailsAPISource(DateSource):
             retries = 0
             retrieval_time += self.DATE_INTERVAL
 
+            # Don't keep the dataframe from the last timestep hanging around
+            # consuming memory while wee wait for the next file to be ready to
+            # retrieve.
+            df_or_status = None
+
         # The only way we get here under normal circumstances is if the
         # receiver process is interrupted by some error condition, either an
         # external signal or a failure to retrieve ADS-B data after repeated
