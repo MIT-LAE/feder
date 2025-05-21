@@ -29,4 +29,4 @@ feder-common = { workspace = true }
 feder-server = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/feder"]
+packages = ["src/feder_rx"]
