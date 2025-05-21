@@ -45,7 +45,7 @@ class WritableDB(DB):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source INTEGER NOT NULL,
             source_id TEXT NOT NULL,
-            transponder_id TEXT NOT NULL,
+            transponder_id TEXT,
             orig TEXT,
             dest TEXT,
             callsign TEXT NOT NULL,
