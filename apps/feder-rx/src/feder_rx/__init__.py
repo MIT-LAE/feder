@@ -8,7 +8,7 @@ import threading
 
 import click
 
-from feder.server import (
+from feder_.server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, Message, IngesterLivenessChecker,
     PrometheusServer

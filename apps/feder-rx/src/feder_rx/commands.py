@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import functools
 
-import feder.server.rmq as rmq
-from feder.server.messages import IngesterLivenessResponse
+import feder_.server.rmq as rmq
+from feder_.server.messages import IngesterLivenessResponse
 
 
 # Classes representing different commands that go into the internal command
