@@ -3,7 +3,7 @@ import logging
 import os
 import sqlite3
 
-from feder_.server import Config, Fix
+from feder_server import Config, Fix
 
 
 logger = logging.getLogger(__name__)
