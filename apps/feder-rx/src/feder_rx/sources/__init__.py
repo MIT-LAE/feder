@@ -8,8 +8,8 @@ from queue import Queue, Full
 from threading import Thread, Event
 from typing import Generator, Any
 
-from feder.common import DataSource
-from feder.server import Config, ThreadControl
+from feder_common import DataSource
+from feder_server import Config, ThreadControl
 
 from ..utils import round_time
 from ..commands import (

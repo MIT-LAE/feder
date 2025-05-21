@@ -7,7 +7,7 @@ from typing import Any
 from pandas import NaT, Timedelta
 from pandas._libs import NaTType
 
-from feder.common import DataSource
+from feder_common import DataSource
 
 
 logger = logging.getLogger(__name__)

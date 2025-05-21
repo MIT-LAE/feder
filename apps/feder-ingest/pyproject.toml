@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-feder-ingest = "feder.ingest:run"
+feder-ingest = "feder_ingest:run"
 
 [build-system]
 requires = ["hatchling"]
@@ -26,4 +26,4 @@ feder-common = { workspace = true }
 feder-server = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/feder"]
+packages = ["src/feder_ingest"]

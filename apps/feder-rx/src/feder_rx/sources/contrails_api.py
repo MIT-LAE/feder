@@ -7,8 +7,8 @@ from typing import Generator
 import pandas as pd
 import requests
 
-from feder.common import DataSource
-from feder.server import Config
+from feder_common import DataSource
+from feder_server import Config
 
 from . import DateSource
 from ..commands import (

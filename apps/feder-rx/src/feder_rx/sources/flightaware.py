@@ -1,4 +1,4 @@
-from feder.common import DataSource
+from feder_common import DataSource
 
 from . import Source
 

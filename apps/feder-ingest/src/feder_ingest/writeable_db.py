@@ -5,7 +5,7 @@ from operator import attrgetter
 import os
 import sqlite3
 
-from feder.common import DB, Trajectory, Point, MISSING_VALUE
+from feder_common import DB, Trajectory, Point, MISSING_VALUE
 
 
 logger = logging.getLogger(__name__)

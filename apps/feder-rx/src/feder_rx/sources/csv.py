@@ -4,9 +4,9 @@ import logging
 from queue import Queue
 from typing import Generator
 
-from feder.server import Config
+from feder_server import Config
 
-from feder.common import DataSource
+from feder_common import DataSource
 from ..commands import Command, BatchSourcePositionCommand
 from . import FileSource
 

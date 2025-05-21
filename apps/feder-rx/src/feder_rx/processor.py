@@ -3,12 +3,12 @@ import logging
 from queue import PriorityQueue
 from threading import Event
 
-from feder.common import DataSource
-from feder.server import (
+from feder_common import DataSource
+from feder_server import (
     Config, RMQ, Trajectory, TrajectoryBatch, Liveness,
     log_counts, ThreadControl, IngesterLivenessResponse
 )
-import feder.server.rmq as rmq
+import feder_server.rmq as rmq
 
 from .commands import (
     Command,

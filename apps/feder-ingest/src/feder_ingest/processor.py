@@ -5,11 +5,11 @@ from queue import PriorityQueue
 from threading import Event
 from typing import cast
 
-from feder.server import (
+from feder_server import (
     Config, RMQ, IngesterLivenessChecker,
     Liveness, TrajectoryBatch, log_counts
 )
-import feder.server.rmq as rmq
+import feder_server.rmq as rmq
 
 from .commands import RMQCommand
 from .db_cache import DBCache

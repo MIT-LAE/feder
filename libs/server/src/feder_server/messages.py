@@ -10,8 +10,8 @@ from typing import Self, Any
 import numpy as np
 import pandas as pd
 
-from feder.common.utils import Packer, Unpacker
-import feder.common.models as models
+from feder_common.utils import Packer, Unpacker
+import feder_common.models as models
 
 from .models import Fix
 

@@ -4,8 +4,7 @@ After=network-online.target
 
 [Service]
 Environment=FEDER_CONFIG=/home/mcast/misc-config/feder-config.toml
-# Restart=on-failure
-Restart=no
+Restart=on-failure
 ExecStart=/home/mcast/.local/bin/uv --directory /home/mcast/code/feder \
   run feder-rx contrails-api
 

@@ -4,7 +4,7 @@ import signal
 
 import click
 
-from feder.server import (
+from feder_server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE,
     IngesterLivenessChecker, Consumer, Message, TrajectoryBatch,

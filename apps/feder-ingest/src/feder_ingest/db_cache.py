@@ -1,7 +1,7 @@
 from datetime import datetime, date, timedelta
 import os
 
-from feder.common import Trajectory
+from feder_common import Trajectory
 
 from .writeable_db import WritableDB
 from .utils import LastUpdatedOrderedDict

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from functools import total_ordering
 
-import feder.server.rmq as rmq
+import feder_server.rmq as rmq
 
 
 # Classes representing different commands that go into the internal command
