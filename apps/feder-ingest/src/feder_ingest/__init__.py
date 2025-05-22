@@ -17,7 +17,7 @@ from .processor import Processor
 from .monitoring import error_counter
 
 
-__version__ = '0.1.3'
+__version__ = '0.1.4'
 
 
 logger = logging.getLogger(__name__)
