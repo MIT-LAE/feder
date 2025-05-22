@@ -2,7 +2,9 @@ from datetime import datetime, timezone, timedelta
 import logging
 import time
 
-from prometheus_client import start_http_server
+from prometheus_client import start_http_server, Counter, Gauge
+
+from feder import get_feder_version
 
 
 logger = logging.getLogger(__name__)
@@ -37,3 +39,11 @@ class PrometheusServer:
             self.last_scrape = datetime.now(tz=timezone.utc)
             return orig(*args, **kwargs)
         return inner
+
+
+error_counter = Counter('feder_error_count', 'Feder errors', ['source'])
+
+version_gauge = Gauge('feder_version', 'Feder software version', ['process'])
+
+def set_version(process_name: str):
+    version_gauge.labels(process=process_name, version=get_feder_version()).set(1)

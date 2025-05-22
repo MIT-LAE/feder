@@ -41,9 +41,3 @@ ingester_liveness_gauge = Gauge(
     'Ingester liveness, split by source',
     ['source']
 )
-
-error_counter = Counter(
-    'feder_error_count',
-    'Receiver errors',
-    ['source']
-)

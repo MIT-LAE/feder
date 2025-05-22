@@ -8,13 +8,12 @@ from feder_server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE,
     IngesterLivenessChecker, Consumer, Message, TrajectoryBatch,
-    PrometheusServer
+    PrometheusServer, error_counter, set_version
 )
 
 from .commands import RMQCommand
 from .db_cache import DBCache
 from .processor import Processor
-from .monitoring import error_counter
 
 
 __version__ = '0.1.4'
@@ -42,6 +41,9 @@ def run(debug: bool, config: str | None) -> None:
     prom_server = PrometheusServer(
         cfg.ingester_prometheus_port, cfg.prometheus_scrape_interval
     )
+
+    # Set version information for Prometheus..
+    set_version('ingester')
 
     # Set up command queue.
     queue = PriorityQueue(10)

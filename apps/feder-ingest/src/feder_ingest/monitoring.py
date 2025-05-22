@@ -11,5 +11,3 @@ batch_time_gauge = Gauge(
     'Timestamp of last trajectory batch ingested, split by source',
     ['source']
 )
-
-error_counter = Counter('feder_error_count', 'Ingester errors', ['source'])

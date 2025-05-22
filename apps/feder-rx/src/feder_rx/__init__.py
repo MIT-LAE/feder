@@ -11,11 +11,10 @@ import click
 from feder_server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, Message, IngesterLivenessChecker,
-    PrometheusServer
+    PrometheusServer, error_counter, set_version
 )
 
 from .commands import IngesterStatusCommand, RMQCommand
-from .monitoring import error_counter
 from .sources.contrails_api import ContrailsAPISource
 from .sources.csv import CSVSource
 from .sources.flightaware import FlightAwareSource
@@ -135,6 +134,9 @@ def run(
             prom_server = PrometheusServer(
                 prom_port, cfg.prometheus_scrape_interval
             )
+
+            # Set version information for Prometheus..
+            set_version(name)
 
     # Set up the command queue used to decouple the data source handler and
     # trajectory completion and RabbitMQ connection handling. We need to
