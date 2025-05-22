@@ -43,7 +43,7 @@ class PrometheusServer:
 
 error_counter = Counter('feder_error_count', 'Feder errors', ['source'])
 
-version_gauge = Gauge('feder_version', 'Feder software version', ['process'])
+version_gauge = Gauge('feder_version', 'Feder software version', ['version'])
 
-def set_version(process_name: str):
-    version_gauge.labels(process=process_name, version=get_feder_version()).set(1)
+def set_version():
+    version_gauge.labels(version=get_feder_version()).set(1)

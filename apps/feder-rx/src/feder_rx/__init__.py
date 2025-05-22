@@ -136,7 +136,7 @@ def run(
             )
 
             # Set version information for Prometheus..
-            set_version(name)
+            set_version()
 
     # Set up the command queue used to decouple the data source handler and
     # trajectory completion and RabbitMQ connection handling. We need to

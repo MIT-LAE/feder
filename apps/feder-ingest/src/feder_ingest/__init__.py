@@ -43,7 +43,7 @@ def run(debug: bool, config: str | None) -> None:
     )
 
     # Set version information for Prometheus..
-    set_version('ingester')
+    set_version()
 
     # Set up command queue.
     queue = PriorityQueue(10)

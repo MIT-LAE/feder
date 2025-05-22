@@ -5,8 +5,9 @@ from threading import Event
 
 from feder_common import DataSource
 from feder_server import (
-    Config, RMQ, Trajectory, TrajectoryBatch, Liveness,
-    log_counts, ThreadControl, IngesterLivenessResponse
+    Config, RMQ, Trajectory, TrajectoryBatch,
+    log_counts, ThreadControl, IngesterLivenessResponse,
+    error_counter
 )
 import feder_server.rmq as rmq
 
@@ -20,7 +21,7 @@ from .db import DB
 from .monitoring import (
     fix_counter, last_completion_fix_counter, trajectory_counter,
     latest_fix_time_gauge, last_completion_fix_time_gauge, last_completion_time_gauge,
-    ingester_liveness_gauge, error_counter
+    ingester_liveness_gauge
 )
 
 
