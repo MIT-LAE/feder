@@ -8,3 +8,5 @@ The parts of this module relevant to the public API are:
 from .models import *  # noqa
 from .db import *  # noqa
 from .utils import *  # noqa
+
+__version__ = '0.1.0'
