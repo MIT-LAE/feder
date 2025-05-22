@@ -44,4 +44,7 @@ pre_commit_hooks = []
 post_commit_hooks = []
 
 [[tool.bumpversion.files]]
+filename = "api/src/feder/__init__.py"
+
+[[tool.bumpversion.files]]
 filename = "libs/common/src/feder_common/__init__.py"
