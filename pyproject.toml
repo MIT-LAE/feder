@@ -42,9 +42,15 @@ commit_args = ""
 setup_hooks = []
 pre_commit_hooks = []
 post_commit_hooks = []
-
-tool.bumpversion.files = [
+files = [
     { filename = "api/pyproject.toml" },
     { filename = "api/src/feder/__init__.py" },
-    { filename = "libs/common/src/feder_common/__init__.py" }
+    { filename = "libs/common/pyproject.toml" },
+    { filename = "libs/common/src/feder_common/__init__.py" },
+    { filename = "libs/server/pyproject.toml" },
+    { filename = "libs/server/src/feder_server/__init__.py" },
+    { filename = "apps/feder-ingest/pyproject.toml" },
+    { filename = "apps/feder-ingest/src/feder_ingest/__init__.py" },
+    { filename = "apps/feder-rx/pyproject.toml" },
+    { filename = "apps/feder-rx/src/feder_rx/__init__.py" }
 ]

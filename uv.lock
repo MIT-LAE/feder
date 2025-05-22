@@ -292,12 +292,12 @@ wheels = [
 
 [[package]]
 name = "feder"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "api" }
 
 [[package]]
 name = "feder-common"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "libs/common" }
 
 [[package]]
@@ -321,7 +321,7 @@ requires-dist = [
 
 [[package]]
 name = "feder-root"
-version = "0.1.1"
+version = "0.1.2"
 source = { virtual = "." }
 
 [package.dev-dependencies]
