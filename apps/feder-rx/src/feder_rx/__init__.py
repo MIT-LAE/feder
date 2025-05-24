@@ -7,11 +7,12 @@ import sys
 import threading
 
 import click
+from prometheus_client import start_http_server
 
 from feder_server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, Message, IngesterLivenessChecker,
-    PrometheusServer, error_counter, set_version
+    error_counter, set_version
 )
 
 from .commands import IngesterStatusCommand, RMQCommand
@@ -128,12 +129,11 @@ def run(
 
     # Start Prometheus HTTP server for non-historical processes.
     prom_server = None
+    prom_thread = None
     if not historical:
         prom_port = cfg.prometheus_port(source.SOURCE)
         if prom_port is not None:
-            prom_server = PrometheusServer(
-                prom_port, cfg.prometheus_scrape_interval
-            )
+            prom_server, prom_thread = start_http_server(prom_port)
 
             # Set version information for Prometheus..
             set_version()
@@ -154,104 +154,105 @@ def run(
     data_source = None
     ingester_liveness = None
 
-    try:
-        # Connect to staging database for current source. For historical
-        # processing jobs, a unique name is used for the staging database, since
-        # the database will be completely consumed at the end of the processing
-        # job, and since we don't want historical processing to interfere with any
-        # live receivers.
-        db = DB(cfg, name, historical)
+    # Connect to staging database for current source. For historical
+    # processing jobs, a unique name is used for the staging database, since
+    # the database will be completely consumed at the end of the processing
+    # job, and since we don't want historical processing to interfere with any
+    # live receivers.
+    db = DB(cfg, name, historical)
 
-        # We may sometimes want to purge the staging database before starting
-        # (mostly for debugging).
-        if purge_staging:
-            db.purge()
+    # We may sometimes want to purge the staging database before starting
+    # (mostly for debugging).
+    if purge_staging:
+        db.purge()
 
-        # Set up RabbitMQ handler.
-        name=f'rx-{name}'
-        rmq = RMQ(
-            name=name,
-            parameters=rmq_parameters(cfg),
-            out_queue=command_queue,
-            message_class=Message,
-            exchanges=[RMQ_TRAJECTORY_EXCHANGE],
-            wrapper_class=RMQCommand,
-            rpc_client=True,
-            rpc_endpoints=IngesterLivenessChecker.RPC_ENDPOINTS
-        )
+    # Set up RabbitMQ handler.
+    name=f'rx-{name}'
+    rmq = RMQ(
+        name=name,
+        parameters=rmq_parameters(cfg),
+        out_queue=command_queue,
+        message_class=Message,
+        exchanges=[RMQ_TRAJECTORY_EXCHANGE],
+        wrapper_class=RMQCommand,
+        rpc_client=True,
+        rpc_endpoints=IngesterLivenessChecker.RPC_ENDPOINTS
+    )
 
-        # Set up data source handler.
-        data_source = source(
-            cfg, command_queue,
-            start_time=start_datetime, end_time=end_datetime,
-            file_cache=file_cache, glob_args=glob_args
-        )
+    # Set up data source handler.
+    data_source = source(
+        cfg, command_queue,
+        start_time=start_datetime, end_time=end_datetime,
+        file_cache=file_cache, glob_args=glob_args
+    )
 
-        # Set up ingester liveness checking.
-        ingester_liveness = IngesterLivenessChecker(
-            rmq, 'ingester', command_queue, IngesterStatusCommand,
-            ok_check_interval=1
-        )
+    # Set up ingester liveness checking.
+    ingester_liveness = IngesterLivenessChecker(
+        rmq, 'ingester', command_queue, IngesterStatusCommand,
+        ok_check_interval=1
+    )
 
-        # Start RabbitMQ handler (waits for connection to RabbitMQ broker and
-        # throws an exception if it takes too long to get set up).
-        # TODO: Think about retrying here. (OR rely on systemd to restart?)
+    # Signal handling for tidy cleanup.
+    processor = None
+    def stop(_signum, _frame):
+        if processor is None:
+            return
+        processor.immediate_stop()
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGTERM, stop)
+
+    clean_stop = False
+    while not clean_stop:
         try:
+            # Start RabbitMQ handler (waits for connection to RabbitMQ
+            # broker and throws an exception if it takes too long to get
+            # set up).
             rmq.start()
-        except RuntimeError as exc:
-            logger.critical('failed to connect to RabbitMQ: %s', exc)
-            sys.exit(1)
 
-        # Signal handling for tidy cleanup.
-        processor = None
-        def stop(_signum, _frame):
-            if processor is None:
-                return
-            processor.immediate_stop()
-        signal.signal(signal.SIGINT, stop)
-        signal.signal(signal.SIGTERM, stop)
+            # Start the ingester liveness checker and wait for the ingester to be
+            # available.
+            ingester_liveness.start()
+            logger.info('waiting for ingester...')
+            ingester_liveness.wait()
+            logger.info('ingester is alive')
+            if ingester_liveness.live:
+                # Start the data source.
+                data_source.start()
 
-        # Start the ingester liveness checker and wait for the ingester to be
-        # available.
-        ingester_liveness.start()
-        logger.info('waiting for ingester...')
-        ingester_liveness.wait()
-        logger.info('ingester is alive')
-        if ingester_liveness.live:
-            # Start the data source.
-            data_source.start()
+                # Process messages from queue.
+                processor = Processor(
+                    cfg, data_source.SOURCE, name, historical, db, command_queue,
+                    rmq, data_source.control, ingester_liveness.ok_check_interval
+                )
+                processor.run()
 
-            # Process messages from queue.
-            processor = Processor(
-                cfg, data_source.SOURCE, name, historical, db, command_queue,
-                rmq, data_source.control, ingester_liveness.ok_check_interval
-            )
-            processor.run()
-    except Exception:
-        logger.exception('unhandled exception in receiver')
-        if prom_server is not None:
-            # Ensure that the metric update makes it upstream.
-            error_counter.labels(source=name).inc()
-            prom_server.wait_for_scrape()
+            # If we get here without an exception, the ingester has
+            # stopped cleanly.
+            clean_stop = True
+        except Exception:
+            logger.exception('unhandled exception in receiver')
+            if prom_server is not None:
+                error_counter.labels(source=name).inc()
+        finally:
+            # If we get here, the processor has stopped, so we need to
+            # clean up the worker threads and RabbitMQ.
+            if data_source is not None:
+                data_source.stop()
+            if ingester_liveness is not None:
+                ingester_liveness.stop()
+            if rmq is not None:
+                rmq.stop()
 
-    finally:
-        # If we get here, the process is stopped, so we need to clean up the
-        # worker threads and RabbitMQ.
-        if data_source is not None:
-            data_source.stop()
-        if ingester_liveness is not None:
-            ingester_liveness.stop()
-        if rmq is not None:
-            rmq.stop()
+            # Drain the command queue to prevent any threads that want to
+            # write to it getting stuck.
+            while not command_queue.empty():
+                command_queue.get()
 
         # Shut down Prometheus HTTP server.
         if prom_server is not None:
             prom_server.shutdown()
-
-        # Drain the command queue to prevent any threads that want to write to
-        # it getting stuck.
-        while not command_queue.empty():
-            command_queue.get()
+        if prom_thread is not None:
+            prom_thread.join()
 
         if db is not None:
             cur = db.conn.cursor()

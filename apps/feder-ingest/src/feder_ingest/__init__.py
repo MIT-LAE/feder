@@ -1,14 +1,16 @@
 import logging
+import os
 from queue import PriorityQueue
 import signal
 
 import click
+from prometheus_client import start_http_server
 
 from feder_server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE,
     IngesterLivenessChecker, Consumer, Message, TrajectoryBatch,
-    PrometheusServer, error_counter, set_version
+    error_counter, set_version
 )
 
 from .commands import RMQCommand
@@ -38,9 +40,7 @@ def run(debug: bool, config: str | None) -> None:
     cfg = Config(config)
 
     # Start Prometheus HTTP server.
-    prom_server = PrometheusServer(
-        cfg.ingester_prometheus_port, cfg.prometheus_scrape_interval
-    )
+    prom_server, prom_thread = start_http_server(cfg.ingester_prometheus_port)
 
     # Set version information for Prometheus..
     set_version()
@@ -81,37 +81,42 @@ def run(debug: bool, config: str | None) -> None:
     # cause an increment in the Prometheus error_counter metric so that they
     # can be captured by monitoring alerts.
 
-    try:
-        # Connect to RabbitMQ.
-        rmq.start()
+    clean_stop = False
+    while not clean_stop:
+        try:
+            # Connect to RabbitMQ.
+            rmq.start()
 
-        # Set up database connection cache.
-        db = DBCache(cfg.data_directory)
+            # Set up database connection cache.
+            db = DBCache(cfg.data_directory)
 
-        # Process messages from queue.
-        processor = Processor(cfg, db, queue, rmq)
-        processor.run()
-    except Exception:
-        logger.exception('unhandled exception in ingester')
-        error_counter.labels(source='ingester').inc()
+            # Process messages from queue.
+            processor = Processor(cfg, db, queue, rmq)
+            processor.run()
 
-        # Ensure that the metric update makes it upstream.
-        prom_server.wait_for_scrape()
-    finally:
-        if db is not None:
-            db.close()
+            # If we get here without an exception, the ingester has stopped
+            # cleanly.
+            clean_stop = True
+        except Exception:
+            logger.exception('unhandled exception in ingester')
+            error_counter.labels(source='ingester').inc()
+        finally:
+            if db is not None:
+                db.close()
+                db = None
 
-        # If we get here, the ingester has already stopped, so we just need to
-        # clean up RabbitMQ.
-        rmq.stop()
+            # If we get here, the ingester has already stopped, so we just need to
+            # clean up RabbitMQ.
+            rmq.stop()
+
+            # Drain the command queue to prevent any threads that want to
+            # write to it getting stuck.
+            while not queue.empty():
+                queue.get()
 
     # Shut down Prometheus HTTP server.
     prom_server.shutdown()
-
-    # Drain the command queue to prevent any threads that want to write to it
-    # getting stuck.
-    while not queue.empty():
-        queue.get()
+    prom_thread.join()
 
 
 if __name__ == '__main__':
