@@ -53,6 +53,9 @@ class Config:
     def data_lag(self, source: DataSource) -> Timedelta:
         return self._source_data_lag[source]
 
+    def bounds(self, source: DataSource) -> list[float] | None:
+        return self._source_bounds[source]
+
     def credentials(self, source: DataSource) -> dict[str, Any]:
         return self._source_credentials[source]
 
@@ -92,6 +95,9 @@ class Config:
         )
         self._source_data_lag: dict[DataSource, Timedelta] = self._get_sources_interval(
             'data-lag', default=def_data_lag
+        )
+        self._source_bounds: dict[DataSource, list[float] | None] = self._get_sources_bounds(
+            'bounds'
         )
 
         self._source_credentials: dict[DataSource, dict[str, str]] = {}
@@ -186,6 +192,13 @@ class Config:
             return value
         self._type_error(table, key)
 
+    def _get_opt_list(self, table: str | list[str], key: str) -> list[float] | None:
+        table = _as_list(table)
+        value = self._get(table, key, missing_ok=True)
+        if isinstance(value, list) or value is None:
+            return value
+        self._type_error(table, key)
+
     def _get_bool(
             self, table: str | list[str], key: str, default: bool | None = None
     ) -> bool:
@@ -226,6 +239,13 @@ class Config:
             s: self._get_interval(['source', str(s)], key, default=default)
             for s in DataSource
         }
+
+    def _get_sources_bounds(self, key: str):
+        return {
+            s: self._get_opt_list(['source', str(s)], key)
+            for s in DataSource
+        }
+
 
 def _td(td: Timedelta | NaTType) -> Timedelta:
     if isinstance(td, NaTType):

@@ -32,6 +32,9 @@ class ContrailsAPISource(DateSource):
     def __init__(self, config: Config, queue: PriorityQueue, *args, **kwargs):
         super().__init__(config, queue, *args, **kwargs)
         self.api_key = config.credentials(self.SOURCE)['api_key']
+        self.bounds = config.bounds(self.SOURCE)
+        if self.bounds is None:
+            raise ValueError('Contrails API source requires bounds')
         self._clear()
 
         # There's no way to check that the credentials are OK at this point.
@@ -125,9 +128,15 @@ class ContrailsAPISource(DateSource):
         process_df = df[~df.callsign.isna()]
         if process_df.timestamp.iloc[0] > process_df.timestamp.iloc[-1]:
             process_df = process_df[::-1]
+        assert self.bounds is not None
+        min_lon, max_lon, min_lat, max_lat = self.bounds
         for tup in process_df.itertuples(index=False):
             # One source position command per row.
             if tup.flight_id is None or tup.timestamp is None:
+                continue
+            if tup.longitude < min_lon or tup.longitude > max_lon:
+                continue
+            if tup.latitude < min_lat or tup.latitude > max_lat:
                 continue
             self._source_ids.append(tup.flight_id)
             self._transponder_ids.append(tup.icao_address)
