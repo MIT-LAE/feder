@@ -27,42 +27,56 @@ class DB:
             self,
             data_dir: str,
             ref_date: datetime | date | int,
-            must_exist: bool = True
+            must_exist: bool = True,
+            in_memory: bool = False
     ):
         self.data_dir = data_dir
+        self.ref_date = DB.normalize_date(ref_date)
+        self.in_memory = in_memory
+        if must_exist and in_memory:
+            raise ValueError(
+                'inconsistent options to DB: in_memory and must_exist'
+            )
+        exists = not self.in_memory and os.path.exists(self.db_file())
+        if must_exist and not exists:
+            raise FileNotFoundError(
+                f'database file {self.db_file()} does not exist'
+            )
+        if not self.in_memory:
+            os.makedirs(os.path.dirname(self.db_file()), exist_ok=True)
+        self.created = self.in_memory or not exists
+        self.conn = sqlite3.connect(self.db_file())
+
+    def db_file(self):
+        if self.in_memory:
+            return ':memory:'
+        else:
+            return DB.db_path(self.data_dir, self.ref_date)
+
+    @staticmethod
+    def normalize_date(ref_date: datetime | date | int) -> datetime:
+        """Convert a date to a datetime object."""
         if isinstance(ref_date, int):
             ref_date = datetime.fromtimestamp(ref_date)
-        if isinstance(ref_date, datetime):
-            ref_date = ref_date.date()
-        self.ref_date = ref_date
-        if must_exist and not os.path.exists(self._db_file()):
-            raise FileNotFoundError(
-                f'database file {self._db_file()} does not exist'
-            )
-        self._conn = None
+        if isinstance(ref_date, date):
+            ref_date = datetime(ref_date.year, ref_date.month, ref_date.day)
+        return ref_date
 
-    def _db_file(self):
-        yr = self.ref_date.year
-        doy = self.ref_date.timetuple().tm_yday
-        return os.path.join(self.data_dir, f'{yr:04d}/{yr:04d}-{doy:03d}.sqlite')
-
-    @property
-    def conn(self):
-        if self._conn is not None:
-            return self._conn
-        f = self._db_file()
-        if not os.path.exists(f):
-            raise FileNotFoundError(f'database file {f} does not exist')
-        self._conn = sqlite3.connect(f)
-        return self._conn
+    @staticmethod
+    def db_path(data_dir: str, ref_date: datetime | date | int) -> str:
+        ref_date = DB.normalize_date(ref_date)
+        yr = ref_date.year
+        doy = ref_date.timetuple().tm_yday
+        return os.path.join(data_dir, f'{yr:04d}/{yr:04d}-{doy:03d}.sqlite')
 
     def cursor(self):
+        assert self.conn is not None, 'DB connection is not open'
         return self.conn.cursor()
 
     def close(self):
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        if self.conn:
+            self.conn.close()
+            self.conn = None
 
     def get_flight_by_id(
             self, source: DataSource, source_id: str

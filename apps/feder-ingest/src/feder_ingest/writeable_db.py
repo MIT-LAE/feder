@@ -2,8 +2,6 @@ import bz2
 from datetime import datetime, date
 import logging
 from operator import attrgetter
-import os
-import sqlite3
 
 from feder_common import DB, Trajectory, Point, MISSING_VALUE
 
@@ -12,24 +10,18 @@ logger = logging.getLogger(__name__)
 
 
 class WritableDB(DB):
-    def __init__(self, data_dir: str, ref_date: datetime | date | int):
-        super().__init__(data_dir, ref_date, must_exist=False)
-        if not os.path.exists(self._db_file()):
+    def __init__(self, data_dir: str, ref_date: datetime | date | int, in_memory: bool = False):
+        super().__init__(data_dir, ref_date, must_exist=False, in_memory=in_memory)
+        if self.created:
             self._create_db()
 
     def commit(self) -> None:
+        assert self.conn is not None, 'DB connection is not open'
         self.conn.commit()
 
     def _create_db(self) -> None:
-        logger.info('creating database file %s', self._db_file())
-
-        # Ensure directory exists.
-        os.makedirs(os.path.dirname(self._db_file()), exist_ok=True)
-
-        # Need to make a separate connection here because this will be called
-        # before the database file exists.
-        conn = sqlite3.connect(self._db_file())
-        cur = conn.cursor()
+        logger.info('creating database file %s', self.db_file())
+        cur = self.cursor()
 
         cur.execute("""
           CREATE VIRTUAL TABLE IF NOT EXISTS trajectory_index USING rtree(
@@ -57,6 +49,10 @@ class WritableDB(DB):
           CREATE INDEX IF NOT EXISTS trajectory_source_id_index
               ON trajectories(source, source_id)
           """)
+
+        if self.in_memory:
+            cur.execute('PRAGMA journal_mode = OFF')
+            cur.execute('PRAGMA synchronous = OFF')
 
     def add_trajectory(
             self,
@@ -92,7 +88,7 @@ class WritableDB(DB):
         )
 
         if commit:
-            self.conn.commit()
+            self.commit()
         return id
 
     def delete_trajectory(
@@ -111,7 +107,7 @@ class WritableDB(DB):
         idx_id = cur.fetchone()[0]
         cur.execute('DELETE FROM trajectory_index WHERE id = ?', (idx_id,))
         if commit:
-            self.conn.commit()
+            self.commit()
 
 
 def _range(traj: Trajectory, attr: str) -> tuple:

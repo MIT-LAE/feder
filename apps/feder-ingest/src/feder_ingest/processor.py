@@ -60,15 +60,8 @@ class Processor:
                                 self._trajectory_count, len(batch.trajectories), 2
                             )
 
-                            # Batching the DB updates here and only committing
-                            # on all the affected connections afterwards looks
-                            # a little weird, but is necessary for performance
-                            # when processing historical data!
-                            dbs_used = set()
                             for traj in batch.trajectories:
-                                dbs_used |= self.db.add_trajectory(traj.model)
-                            for db in dbs_used:
-                                db.commit()
+                                self.db.add_trajectory(traj.model)
 
                             # Make sure the trajectory count is monotonically
                             # increasing! If batches get delivered out of

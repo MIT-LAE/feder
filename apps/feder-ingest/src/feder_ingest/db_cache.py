@@ -1,4 +1,5 @@
 from datetime import datetime, date, timedelta
+import logging
 import os
 
 from feder_common import Trajectory
@@ -7,40 +8,111 @@ from .writeable_db import WritableDB
 from .utils import LastUpdatedOrderedDict
 
 
+logger = logging.getLogger(__name__)
+
+
+ConnectionCache = LastUpdatedOrderedDict[date, WritableDB]
+
+
 class DBCache:
     """"LRU cache of writable database connections."""
 
-    def __init__(self, data_dir: str, connection_cache_size: int = 16):
+    def __init__(
+            self,
+            data_dir: str,
+            connection_cache_size: int = 16,
+            nursery_size: int = 5
+    ):
         if not os.path.exists(data_dir):
             raise ValueError(
                 f'database directory {data_dir} does not exist'
             )
         self.data_dir = data_dir
         self.connection_cache_size = connection_cache_size
-        self._connections: LastUpdatedOrderedDict[date, WritableDB] = LastUpdatedOrderedDict()
+        self.nursery_size = nursery_size
+        self._nursery: ConnectionCache = LastUpdatedOrderedDict()
+        self._connections: ConnectionCache = LastUpdatedOrderedDict()
+        self._touched = set[WritableDB]()
+        self._trajectory_count = 0
 
     def connect(self, ref_date: datetime | date | int) -> WritableDB:
-        if isinstance(ref_date, int):
-            ref_date = datetime.fromtimestamp(ref_date)
-        if isinstance(ref_date, datetime):
-            ref_date = ref_date.date()
+        ref_date = WritableDB.normalize_date(ref_date)
 
         # Open database connection for the given date, retrieving it from the
         # cache if it exists. The size of the cache is kept at the size
-        # specified in the constructor.
-        conn = self._connections.get(ref_date, WritableDB(self.data_dir, ref_date))
-        self._connections[ref_date] = conn
-        if len(self._connections) > self.connection_cache_size:
-            self._connections.popitem(last=False)
+        # specified in the constructor. The logic here is a little
+        # complicated, because we maintain a "nursery" of new databases in
+        # memory. These in-memory databases are eventually "promoted" to files
+        # in the main data directory.
+
+        # The date is in the main cache (so we use the cached connection) or
+        # the nursery (so we use the in-memory nursery connection).
+        conn = self._connections.get(ref_date) or self._nursery.get(ref_date)
+        if conn is not None:
+            return conn
+
+        # A file exists in the main data directory: we open the file in the
+        # data directory, put the connection in the connection cache, and
+        # evict an entry from the cache if necessary.
+        if os.path.exists(WritableDB.db_path(self.data_dir, ref_date)):
+            conn = WritableDB(self.data_dir, ref_date)
+            # Check if the database is empty, and if so, delete it and fall
+            # through to create a new in-memory database.
+            # TODO: DO THIS!
+            # cur = conn.cursor()
+            self._connections[ref_date] = conn
+            if len(self._connections) > self.connection_cache_size:
+                self._connections.popitem(last=False)
+            return conn
+
+        # Otherwise this is a new date that we don't have a database for yet.
+        # Create a new in-memory database connection in the nursery, cache it
+        # and handle any eviction of a connection from the nursery by
+        # promoting it to an file on disk.
+        conn = WritableDB(self.data_dir, ref_date, in_memory=True)
+        self._nursery[ref_date] = conn
+        if len(self._nursery) > self.nursery_size:
+            self.commit(force=True)
+            self._promote(self._nursery.popitem(last=False))
         return conn
 
     def close(self) -> None:
+        self.commit(force=True)
+
+        # Promote cached nursery connections to files.
+        for date_db in self._nursery.items():
+            self._promote(date_db)
+        self._nursery.clear()
+
         # Close all open database connections.
         for conn in self._connections.values():
             conn.close()
         self._connections.clear()
 
-    def add_trajectory(self, traj: Trajectory) -> set[WritableDB]:
+    def _promote(self, date_db: tuple[date, WritableDB]) -> None:
+        date, conn = date_db
+        logger.info('nursery promotion: %s', date.strftime('%Y-%j'))
+        cur = conn.cursor()
+        path = WritableDB.db_path(self.data_dir, date)
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        cur.execute(f"VACUUM INTO '{WritableDB.db_path(self.data_dir, date)}'")
+
+    def commit(self, force: bool = False) -> None:
+        if force or len(self._touched) > 5 or self._trajectory_count % 1000 == 0:
+            logger.info(
+                'committing %d trajectories, %d databases',
+                self._trajectory_count, len(self._touched)
+            )
+            for db in self._touched:
+                db.commit()
+            self._touched.clear()
+            self._trajectory_count = 0
+
+    def add_trajectory(self, traj: Trajectory):
         # Add a trajectory to the appropriate database. "Appropriate" means
         # the database file for the date on which the timestamp of the first
         # point in the trajectory falls.
@@ -74,8 +146,6 @@ class DBCache:
         # the ingester to modify the database files, but it's still a little
         # awkward.
 
-        touched = set()
-
         # Database connections for the day of the first point in the
         # trajectory and the day before and day after.
         # tic0 = time.perf_counter()
@@ -97,16 +167,18 @@ class DBCache:
         # we can do but handle that like the barbarians we are.
         if traj_m1 is not None:
             db_m1.delete_trajectory(traj_m1, commit=False)
-            touched.add(db_m1)
+            self._touched.add(db_m1)
         if traj_p1 is not None:
             db_p1.delete_trajectory(traj_p1, commit=False)
-            touched.add(db_p1)
+            self._touched.add(db_p1)
 
         # The rest of what we need to do operates on a single database file,
         # we *can* do it in a single transaction.
         if traj_0 is not None:
             db_0.delete_trajectory(traj_0, commit=False)
         db_0.add_trajectory(traj, commit=False)
-        touched.add(db_0)
+        self._touched.add(db_0)
+        self._trajectory_count += 1
 
-        return touched
+        # Maybe commit, if we've processed enough trajectories.
+        self.commit()
