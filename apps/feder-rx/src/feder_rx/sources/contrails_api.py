@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import gc
 from io import BytesIO
 import logging
 from queue import PriorityQueue
@@ -24,6 +25,13 @@ logger = logging.getLogger(__name__)
 class ContrailsAPISource(DateSource):
     SOURCE = DataSource.CONTRAILS_API
     BATCH_SIZE = 100
+
+    # Columns to read from Contrails API Parquet files.
+    COLUMNS = [
+        'flight_id', 'icao_address', 'timestamp', 'callsign',
+        'departure_airport_icao', 'arrival_airport_icao', 'aircraft_type_icao',
+        'latitude', 'longitude', 'altitude_baro', 'altitude_gnss'
+    ]
 
     # The Contrails API provides hourly ADS-B files.
     DATE_RESOLUTION = 'h'
@@ -212,11 +220,13 @@ class ContrailsAPISource(DateSource):
                 continue
 
             logger.info('processing data for %s...', log_time)
-            # TODO: Fix this.
-            # Stream data to temporary file.
-            # Use PyArrow to read in batches.
-            # Process one batch at a time as a DataFrame.
-            # https://stackoverflow.com/a/72746856
+
+            # It would be really good here to be able to stream data to a
+            # temporary file and then use PyArrow to read the file in batches
+            # to help keep memory consumption down. However, that's not
+            # possible, because of the backwards order of the timestamps in
+            # the Contrails API files, so we have to read the whole dataset as
+            # a Pandas DataFrame and process it in one go.
             for cmd in self.process_df(df_or_status):
                 if self.stopped:
                     return
@@ -237,6 +247,7 @@ class ContrailsAPISource(DateSource):
             # consuming memory while wee wait for the next file to be ready to
             # retrieve.
             df_or_status = None
+            gc.collect()
 
         # The only way we get here under normal circumstances is if the
         # receiver process is interrupted by some error condition, either an
@@ -290,7 +301,7 @@ class ContrailsAPISource(DateSource):
                 save_fp.close()
 
         data.seek(0)
-        return pd.read_parquet(data)
+        return pd.read_parquet(data, columns=self.COLUMNS)
 
 
 def _format_time(t: datetime) -> str:

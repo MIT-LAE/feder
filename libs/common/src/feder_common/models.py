@@ -27,7 +27,7 @@ class DataSource(Enum):
         return self.name.lower().replace('_', '-')
 
 
-@dataclass
+@dataclass(slots=True)
 class Point:
     """A single point in a trajectory."""
 
@@ -92,7 +92,7 @@ class Point:
         return points
 
 
-@dataclass
+@dataclass(slots=True)
 class Trajectory:
     """A single flight trajectory."""
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Feder ingester
+Description=Feder Contrails API receiver
 After=network-online.target
 
 [Service]
