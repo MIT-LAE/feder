@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 import functools
 
 import feder_server.rmq as rmq
@@ -96,3 +96,8 @@ class BatchSourcePositionCommand(Command):
     alts_gnss: list[int | None]
     headings: list[float | None]
     on_grounds: list[bool]
+
+
+@dataclass
+class EndOfDayCommand(Command):
+    day: date

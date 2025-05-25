@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import logging
 from queue import PriorityQueue
 from threading import Event
@@ -11,7 +11,7 @@ from feder_server import (
 )
 import feder_server.rmq as rmq
 
-from .commands import RMQCommand
+from .commands import RMQCommand, CheckpointCommand, StopCommand
 from .db_cache import DBCache
 from .monitoring import trajectory_counter, batch_time_gauge
 
@@ -47,14 +47,29 @@ class Processor:
                 self._clean_up_statistics()
 
             match self.queue.get():
-                case 'STOP':
+                case StopCommand():
                     # Used by immediate_stop to break out of loop.
                     continue
+
+                case CheckpointCommand():
+                    # Periodically commit and checkpoint all open in-memory
+                    # databases to disk.
+                    print('HERE!')
+                    self.db.checkpoint()
 
                 case RMQCommand() as cmd:
                     match cmd.message:
                         case rmq.DataMessage() as msg:
                             batch = cast(TrajectoryBatch, msg.message)
+                            if len(batch.trajectories) == 0:
+                                # This marks the end of a day, so we can
+                                # promote the current day's in-memory database
+                                # to a file.
+                                self.db.end_of_day(
+                                    date.fromordinal(batch.trajectory_count)
+                                )
+                                continue
+
                             self._trajectory_count = log_counts(
                                 logger, 'trajectories',
                                 self._trajectory_count, len(batch.trajectories), 2
@@ -114,4 +129,4 @@ class Processor:
     def immediate_stop(self):
         self._immediate_stop.set()
         if self.queue.empty():
-            self.queue.put('STOP')
+            self.queue.put(StopCommand())

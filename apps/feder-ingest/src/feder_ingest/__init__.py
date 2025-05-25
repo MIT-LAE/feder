@@ -10,10 +10,10 @@ from feder_server import (
     logging_setup, Config, RMQ, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE,
     IngesterLivenessChecker, Consumer, Message, TrajectoryBatch,
-    error_counter, set_version
+    error_counter, set_version, TimerThread
 )
 
-from .commands import RMQCommand
+from .commands import RMQCommand, CheckpointCommand
 from .db_cache import DBCache
 from .processor import Processor
 
@@ -22,6 +22,15 @@ __version__ = '0.1.6'
 
 
 logger = logging.getLogger(__name__)
+
+
+# This just forces the database cache to commit all its open databases and
+# write in-memory databases to disk every 15 minutes. It's only really needed
+# in quiet periods when no new trajectories are coming in.
+
+class CheckpointTimerThread(TimerThread):
+    def __init__(self, queue: PriorityQueue):
+        super().__init__(queue, 15 * 60, CheckpointCommand)
 
 
 @click.command()
@@ -65,6 +74,9 @@ def run(debug: bool, config: str | None) -> None:
         rpc_endpoints=IngesterLivenessChecker.RPC_ENDPOINTS
     )
 
+    # Set up checkpoint timer thread.
+    checkpoint_timer = CheckpointTimerThread(queue)
+
     db = None
     processor = None
 
@@ -90,6 +102,9 @@ def run(debug: bool, config: str | None) -> None:
             # Set up database connection cache.
             db = DBCache(cfg.data_directory)
 
+            # Start checkpoint timer thread.
+            checkpoint_timer.start()
+
             # Process messages from queue.
             processor = Processor(cfg, db, queue, rmq)
             processor.run()
@@ -101,6 +116,7 @@ def run(debug: bool, config: str | None) -> None:
             logger.exception('unhandled exception in ingester')
             error_counter.labels(source='ingester').inc()
         finally:
+            checkpoint_timer.stop()
             if db is not None:
                 db.close()
                 db = None

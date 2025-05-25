@@ -14,7 +14,8 @@ from feder_server import Config
 from . import DateSource
 from ..commands import (
     Command, SourceErrorCommand, SourceDoneCommand,
-    SourcePositionCommand, BatchSourcePositionCommand
+    SourcePositionCommand, BatchSourcePositionCommand,
+    EndOfDayCommand
 )
 from ..utils import round_time
 
@@ -118,6 +119,14 @@ class ContrailsAPISource(DateSource):
                         latest_time = max(latest_time, *cmd.times)
                 self.put(cmd)
 
+            # This is the last file for the day.
+            if request_time.hour == 23:
+                logger.info(
+                    'writing end of day command: %s',
+                    request_time.strftime('%Y-%j')
+                )
+                self.put(EndOfDayCommand(request_time.date()))
+
             request_time += self.DATE_INTERVAL
 
         logger.info('total position fixes from source: %s', fix_count)
@@ -133,19 +142,23 @@ class ContrailsAPISource(DateSource):
         # NOTE: Contrails API returns rows in *reverse* time order so let's be
         # defensive and reverse them to get them in the right order if that's
         # the case!
-        process_df = df[~df.callsign.isna()]
-        if process_df.timestamp.iloc[0] > process_df.timestamp.iloc[-1]:
-            process_df = process_df[::-1]
         assert self.bounds is not None
         min_lon, max_lon, min_lat, max_lat = self.bounds
-        for tup in process_df.itertuples(index=False):
+        unfiltered_rows = len(df)
+        df = df[
+            ~df.callsign.isna() & ~df.flight_id.isna() & ~df.timestamp.isna() &
+            (df.longitude >= min_lon) & (df.longitude <= max_lon) &
+            (df.latitude >= min_lat) & (df.latitude <= max_lat)
+        ]
+        filtered_rows = len(df)
+        logger.info(
+            'retrieved %s rows from Contrails API, filtered to %s rows',
+            unfiltered_rows, filtered_rows
+        )
+        if df.timestamp.iloc[0] > df.timestamp.iloc[-1]:
+            df = df[::-1]
+        for tup in df.itertuples(index=False):
             # One source position command per row.
-            if tup.flight_id is None or tup.timestamp is None:
-                continue
-            if tup.longitude < min_lon or tup.longitude > max_lon:
-                continue
-            if tup.latitude < min_lat or tup.latitude > max_lat:
-                continue
             self._source_ids.append(tup.flight_id)
             self._transponder_ids.append(tup.icao_address)
             self._times.append(tup.timestamp.to_pydatetime())
@@ -185,7 +198,7 @@ class ContrailsAPISource(DateSource):
         retrieval_time = (
             datetime.now(timezone.utc) - self.config.data_lag(self.SOURCE)
         )
-        retrieval_time = round_time(retrieval_time - self.DATE_INTERVAL, 'h')
+        retrieval_time = round_time(retrieval_time, 'h')
         retries = 0
         fix_count = 0
         latest_time = datetime(1, 1, 1)
@@ -239,6 +252,14 @@ class ContrailsAPISource(DateSource):
                         fix_count += len(cmd.source_ids)
                         latest_time = max(latest_time, *cmd.times)
                 self.put(cmd)
+
+            # This is the last file for the day.
+            if retrieval_time.hour == 23:
+                logger.info(
+                    'writing end of day command: %s',
+                    retrieval_time.strftime('%Y-%j')
+                )
+                self.put(EndOfDayCommand(retrieval_time.date()))
 
             retries = 0
             retrieval_time += self.DATE_INTERVAL

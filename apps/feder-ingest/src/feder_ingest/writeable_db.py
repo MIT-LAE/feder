@@ -20,7 +20,9 @@ class WritableDB(DB):
         self.conn.commit()
 
     def _create_db(self) -> None:
-        logger.info('creating database file %s', self.db_file())
+        logger.info(
+            'creating database for %s (%s)', self.format_date(), self.db_file()
+        )
         cur = self.cursor()
 
         cur.execute("""

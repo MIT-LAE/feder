@@ -56,14 +56,17 @@ class DBCache:
         # evict an entry from the cache if necessary.
         if os.path.exists(WritableDB.db_path(self.data_dir, ref_date)):
             conn = WritableDB(self.data_dir, ref_date)
-            # Check if the database is empty, and if so, delete it and fall
-            # through to create a new in-memory database.
-            # TODO: DO THIS!
-            # cur = conn.cursor()
-            self._connections[ref_date] = conn
-            if len(self._connections) > self.connection_cache_size:
-                self._connections.popitem(last=False)
-            return conn
+
+            # If the database is empty, delete it and fall through to create a
+            # new in-memory database.
+            if conn.size() == 0:
+                conn = None
+                os.remove(WritableDB.db_path(self.data_dir, ref_date))
+            else:
+                self._connections[ref_date] = conn
+                if len(self._connections) > self.connection_cache_size:
+                    self._connections.popitem(last=False)
+                return conn
 
         # Otherwise this is a new date that we don't have a database for yet.
         # Create a new in-memory database connection in the nursery, cache it
@@ -101,8 +104,21 @@ class DBCache:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         cur.execute(f"VACUUM INTO '{WritableDB.db_path(self.data_dir, date)}'")
 
+    def checkpoint(self) -> None:
+        self.commit(force=True)
+        for day in self._nursery:
+            db = self._nursery[day]
+            if db.size() > 0:
+                logger.info('nursery checkpoint: %s', day.strftime('%Y-%j'))
+                self._promote((day, db))
+
     def commit(self, force: bool = False) -> None:
-        if force or len(self._touched) > 5 or self._trajectory_count % 1000 == 0:
+        do_commit = False
+        if force:
+            do_commit = len(self._touched) > 0
+        else:
+            do_commit = len(self._touched) > 5 or self._trajectory_count % 1000 == 0
+        if do_commit:
             logger.info(
                 'committing %d trajectories, %d databases',
                 self._trajectory_count, len(self._touched)
@@ -111,6 +127,18 @@ class DBCache:
                 db.commit()
             self._touched.clear()
             self._trajectory_count = 0
+
+    def end_of_day(self, day: date) -> None:
+        day = WritableDB.normalize_date(day)
+        logger.info(
+            'end of day: committing and promoting nursery entries for %s',
+            day.strftime('%Y-%j')
+        )
+        if day in self._nursery:
+            db = self._nursery[day]
+            del self._nursery[day]
+            self.commit(force=True)
+            self._promote((day, db))
 
     def add_trajectory(self, traj: Trajectory):
         # Add a trajectory to the appropriate database. "Appropriate" means

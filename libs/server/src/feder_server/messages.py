@@ -2,12 +2,11 @@ from abc import ABC, abstractmethod
 import bz2
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum, auto
 import logging
-from typing import Self, Any
+from typing import Self
 
-import numpy as np
 import pandas as pd
 
 from feder_common.utils import Packer, Unpacker
@@ -130,6 +129,21 @@ class TrajectoryBatch(Message):
         )
 
 
+@dataclass
+class EndOfDay(Message):
+    MESSAGE_TAG = 'd'
+
+    day: date
+
+    def _pack(self, packer: Packer):
+        packer('>L', int(self.day.toordinal()))
+
+    @classmethod
+    def _unpack(cls, unpacker: Unpacker) -> Self:
+        day = date.fromordinal(unpacker('>L'))
+        return cls(day=day)
+
+
 class Liveness(Enum):
     UNKNOWN = auto()
     OK = auto()
@@ -177,7 +191,7 @@ class IngesterLivenessResponse(Message):
 
 MESSAGE_TAG_DICT = {
     c.MESSAGE_TAG: c for c in [
-        Trajectory, TrajectoryBatch,
+        Trajectory, TrajectoryBatch, EndOfDay,
         IngesterLivenessQuery, IngesterLivenessResponse
     ]
 }

@@ -18,8 +18,16 @@ class Command:
         return self.PRIORITY < other.PRIORITY
 
 
+class CheckpointCommand(Command):
+    PRIORITY = 2
+
+
 @dataclass
 class RMQCommand(Command):
     PRIORITY = 1
 
     message: rmq.Message
+
+
+class StopCommand(Command):
+    PRIORITY = 0

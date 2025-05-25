@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import logging
 from queue import PriorityQueue
 from threading import Event
@@ -13,7 +13,7 @@ import feder_server.rmq as rmq
 
 from .commands import (
     Command,
-    SourcePositionCommand, BatchSourcePositionCommand,
+    SourcePositionCommand, BatchSourcePositionCommand, EndOfDayCommand,
     SourceErrorCommand, SourceDoneCommand,
     IngesterStatusCommand, RMQCommand, StopCommand
 )
@@ -63,6 +63,7 @@ class Processor:
         self._immediate_stop = Event()
         self._done_pending = False
         self._final_completion_pending = False
+        self._end_of_day_pending = None
         self._pending_rmq_messages = {}
         self._fix_count_total = 0
         self._fix_count_last_completion = 0
@@ -104,6 +105,12 @@ class Processor:
                 )
                 self._trajectories = self._trajectories[self.TRAJECTORY_BATCH_SIZE:]
 
+            if (
+                    len(self._trajectories) == 0 and
+                    self._end_of_day_pending is not None
+            ):
+                self._send_end_of_day()
+
             try:
                 self._process_one(self.command_queue.get())
             except Exception:
@@ -112,7 +119,10 @@ class Processor:
             if self._done:
                 continue
 
-            if self._final_completion_pending or self._ok_to_complete():
+            if (
+                    self._fix_count_total > 0 and
+                    (self._final_completion_pending or self._ok_to_complete())
+            ):
                 self._add_trajectories(self._final_completion_pending)
                 self._final_completion_pending = False
 
@@ -172,6 +182,9 @@ class Processor:
 
             case BatchSourcePositionCommand() as cmd:
                 self._log_positions(self._batch_source_position(cmd))
+
+            case EndOfDayCommand() as cmd:
+                self._end_of_day_pending = cmd.day
 
             case SourceErrorCommand(message, stop):
                 # Log errors and stop if requested.
@@ -381,3 +394,18 @@ class Processor:
                 return []
             horizon = self._fix_time_latest - self.completion_delay
         return self.db.complete_source_ids(horizon)
+
+    def _send_end_of_day(self) -> None:
+        # An empty trajectory batch is sent to the ingester to indicate the
+        # end of a day, which allows the ingester to flush the current day's
+        # in-memory database to disk.
+        assert self._end_of_day_pending is not None
+        message_number = self.rmq.send(
+            'trajectory', TrajectoryBatch(
+                trajectories=[],
+                source=self.name,
+                trajectory_count=self._end_of_day_pending.toordinal())
+        )
+        if message_number is not None:
+            self._pending_rmq_messages[message_number] = []
+        self._end_of_day_pending = None

@@ -62,6 +62,11 @@ class DB:
             ref_date = datetime(ref_date.year, ref_date.month, ref_date.day)
         return ref_date
 
+    def format_date(self) -> str:
+        yr = self.ref_date.year
+        doy = self.ref_date.timetuple().tm_yday
+        return f'{yr:04d}-{doy:03d}'
+
     @staticmethod
     def db_path(data_dir: str, ref_date: datetime | date | int) -> str:
         ref_date = DB.normalize_date(ref_date)
@@ -179,6 +184,11 @@ class DB:
                 f'id IN ({",".join("?" for i in id_batch)})',
                 list(id_batch)
             )
+
+    def size(self) -> int:
+        cur = self.cursor()
+        cur.execute('SELECT COUNT(*) FROM trajectories')
+        return cur.fetchone()[0]
 
     def _retrieve(
             self,
