@@ -6,8 +6,7 @@ from threading import Event
 from feder_common import DataSource
 from feder_server import (
     Config, RMQ, Trajectory, TrajectoryBatch,
-    log_counts, ThreadControl, IngesterLivenessResponse,
-    error_counter
+    log_counts, ThreadControl, IngesterLivenessResponse
 )
 import feder_server.rmq as rmq
 

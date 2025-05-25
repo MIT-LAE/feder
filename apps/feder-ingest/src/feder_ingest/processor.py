@@ -54,7 +54,6 @@ class Processor:
                 case CheckpointCommand():
                     # Periodically commit and checkpoint all open in-memory
                     # databases to disk.
-                    print('HERE!')
                     self.db.checkpoint()
 
                 case RMQCommand() as cmd:

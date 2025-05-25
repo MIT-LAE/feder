@@ -3,8 +3,8 @@ import string
 
 from hypothesis import strategies as st
 
-from feder.common.utils import milli
-from feder.common.models import DataSource, Point, Trajectory
+from feder_common.utils import milli
+from feder_common.models import DataSource, Point, Trajectory
 
 
 EARLIEST_TIME = int(datetime(2000, 1, 1).timestamp())

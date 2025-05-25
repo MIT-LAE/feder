@@ -1,11 +1,13 @@
 from datetime import datetime, timezone
 
-from feder.rx.commands import (
-    IngesterStatusCommand,
-    SourceDoneCommand, SourceErrorCommand, SourcePositionCommand,
+from feder_rx.commands import (
+    StopCommand,
+    SourceErrorCommand, SourceDoneCommand,
+    SourcePositionCommand, BatchSourcePositionCommand,
+    IngesterStatusCommand, EndOfDayCommand,
     RMQCommand
 )
-import feder.server.rmq as rmq
+import feder_server.rmq as rmq
 
 
 def test_command_ordering():
@@ -19,9 +21,21 @@ def test_command_ordering():
         lat=41.0, lon=-95.0, alt=35000, alt_gnss=None, heading=None,
         on_ground=False
     )
+    batch_source_pos = BatchSourcePositionCommand(
+        source_ids=['DUMMY'], transponder_ids=['DUMMY'],
+        times=[datetime(2025, 4, 1, 12, 0)],
+        origs=[None], dests=['DUMY'],
+        callsigns=['DUMMY'], aircraft_types=[None],
+        lats=[41.0], lons=[-95.0], alts=[35000], alts_gnss=[None], headings=[None],
+        on_grounds=[False]
+    )
     source_error = SourceErrorCommand('this is an error', stop=True)
     source_done = SourceDoneCommand(datetime.now(timezone.utc))
-    ingester_status = IngesterStatusCommand(live=True)
+    stop = StopCommand()
+    ingester_status = IngesterStatusCommand(
+        response=None,
+        response_received=datetime.now(timezone.utc)
+    )
     rmq_ack = RMQCommand(message=rmq.AckMessage(delivery_tag=2))
     rmq_nack = RMQCommand(message=rmq.NackMessage(delivery_tag=1))
     rmq_data = RMQCommand(message=rmq.DataMessage(
@@ -40,21 +54,26 @@ def test_command_ordering():
         correlation_id='DUMMY-ID',
         reason='testing'
     ))
+    end_of_day = EndOfDayCommand(datetime.now(timezone.utc))
 
     commands = sorted([
-        source_pos, source_error, source_done,
-        ingester_status,
+        source_pos, batch_source_pos,
+        source_error, source_done, stop,
+        ingester_status, end_of_day,
         rmq_ack, rmq_nack, rmq_data, rmq_rpc, rmq_rpc_error
     ])
 
     assert commands == [
+        # Maximum priority
+        stop,
+
         # High priority
         source_error, ingester_status,
-        rmq_nack, rmq_ack, rmq_rpc_error,
+        rmq_nack, rmq_ack, rmq_rpc_error, rmq_rpc, rmq_data,
 
         # Medium priority
-        source_pos, rmq_rpc,
+        source_pos, batch_source_pos, end_of_day,
 
         # Low priority
-        source_done, rmq_data
+        source_done
     ]

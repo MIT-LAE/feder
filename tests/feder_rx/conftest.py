@@ -3,8 +3,8 @@ import os
 
 import pytest
 
-from feder.server import Config
-from feder.rx.db import DB
+from feder_server import Config
+from feder_rx.db import DB
 
 
 TEST_CONFIG = """

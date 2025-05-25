@@ -1,7 +1,7 @@
 import queue
 import time
 
-from feder.server.rmq import DataMessage
+from feder_server.rmq import DataMessage
 
 from .messages import PubTest
 

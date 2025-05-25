@@ -5,12 +5,12 @@ from threading import Thread
 import time
 from unittest.mock import Mock
 
-from feder.common import DataSource
-from feder.server import Message
-import feder.server.rmq as rmq
-from feder.rx import Processor
-from feder.rx.db import DB
-from feder.rx.commands import (
+from feder_common import DataSource
+from feder_server import Message
+import feder_server.rmq as rmq
+from feder_rx import Processor
+from feder_rx.db import DB
+from feder_rx.commands import (
     SourceDoneCommand, SourcePositionCommand, RMQCommand
 )
 
@@ -27,11 +27,13 @@ def test_source_position_command_processing(config):
     db = DB(config, 'processor')
     queue = PriorityQueue()
     rmq_mock = Mock()
+    thread_control_mock = Mock()
     DELIVERY_TAG = 123
     rmq_mock.send = Mock(return_value=DELIVERY_TAG)
     processor = Processor(
-        config, DataSource.FLIGHTAWARE, False, db, queue,
-        rmq=rmq_mock, liveness_endpoint=None
+        config, DataSource.FLIGHTAWARE, 'test', False,
+        db, queue, rmq_mock, thread_control_mock,
+        ingester_liveness_interval=10
     )
 
     def send_position_fixes():
@@ -74,4 +76,5 @@ def test_source_position_command_processing(config):
 
     after_rows = db.count_entries()
 
-    assert after_rows - before_rows == 3
+    assert after_rows - before_rows == 0
+    assert rmq_mock.send.call_count == 1

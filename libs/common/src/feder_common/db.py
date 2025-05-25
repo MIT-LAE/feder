@@ -83,11 +83,21 @@ class DB:
             self.conn.close()
             self.conn = None
 
+    def size(self) -> int:
+        cur = self.cursor()
+        cur.execute('SELECT COUNT(*) FROM trajectories')
+        return cur.fetchone()[0]
+
     def get_flight_by_id(
             self, source: DataSource, source_id: str
     ) -> Trajectory | None:
         # Return a single result from _retrieve's generator.
         return next(self._retrieve(source, 'source_id = ?', source_id), None)
+
+    def timestamp_ranges(self) -> list[tuple[int, int]]:
+        cur = self.cursor()
+        cur.execute('SELECT min_timestamp, max_timestamp FROM trajectory_index')
+        return [(int(t[0]), int(t[1])) for t in cur.fetchall()]
 
     def query_flights(
             self,
@@ -184,11 +194,6 @@ class DB:
                 f'id IN ({",".join("?" for i in id_batch)})',
                 list(id_batch)
             )
-
-    def size(self) -> int:
-        cur = self.cursor()
-        cur.execute('SELECT COUNT(*) FROM trajectories')
-        return cur.fetchone()[0]
 
     def _retrieve(
             self,

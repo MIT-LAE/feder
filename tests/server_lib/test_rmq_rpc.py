@@ -1,6 +1,6 @@
 from threading import Thread, Event
 
-from feder.server.rmq import RPCMessage
+from feder_server.rmq import RPCMessage
 
 from .messages import (  # noqa
     FibonacciRequest, FibonacciResponse,

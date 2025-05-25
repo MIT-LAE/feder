@@ -1,5 +1,5 @@
-import os
 from datetime import datetime, timedelta
+import os
 from typing import Generator
 
 from feder.common import DB, DataSource, QueryType, Trajectory

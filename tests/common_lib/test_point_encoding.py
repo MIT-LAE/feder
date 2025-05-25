@@ -1,6 +1,6 @@
 from hypothesis import given, settings
 
-from feder.common.models import Point
+from feder_common.models import Point
 
 from ..conftest import point_strategy
 

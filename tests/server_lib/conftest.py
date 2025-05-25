@@ -3,7 +3,7 @@ from queue import Queue
 from pika import ConnectionParameters
 import pytest
 
-from feder.server import RMQ, Consumer, RPCEndpoint
+from feder_server import RMQ, Consumer, RPCEndpoint
 
 from .messages import (  # noqa
     TestMessage,

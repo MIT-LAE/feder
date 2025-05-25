@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Self
 
-from feder.common.utils import Packer, Unpacker
+from feder_common.utils import Packer, Unpacker
 
 
 @dataclass
