@@ -9,4 +9,4 @@ from .common.db import QueryType  # noqa
 from .common.version import get_feder_version  # noqa
 
 
-__version__ = '0.1.6'
+__version__ = '0.1.7'
