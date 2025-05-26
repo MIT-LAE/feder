@@ -1,4 +1,4 @@
-from queue import Queue
+from queue import PriorityQueue
 
 from pika import ConnectionParameters
 import pytest
@@ -74,7 +74,7 @@ def _make_rmq(
     return RMQ(
         name=name,
         parameters=ConnectionParameters(host='localhost'),
-        out_queue=Queue(),
+        out_queue=PriorityQueue(),
         message_class=TestMessage,
         exchanges=['test_exchange'],
         consumers=consumers,

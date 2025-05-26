@@ -14,6 +14,7 @@ class TimerThread(Thread):
         self.finished.set()
 
     def run(self):
+        self.finished.clear()
         while True:
             self.finished.wait(self.interval)
             if self.finished.is_set():
