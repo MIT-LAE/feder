@@ -9,7 +9,7 @@ dist:
 docs:
 	mkdir -p docs
 	cp deploy/lae-logo.png docs
-	cd api ; uv run pdoc -t . --logo $(DOC_LOGO) -o ../docs $(DOC_MODULES)
+	cd api ; uv run pdoc --logo $(DOC_LOGO) -o ../docs $(DOC_MODULES)
 
 doc-server:
 	cd api ; uv run pdoc $(DOC_MODULES)
