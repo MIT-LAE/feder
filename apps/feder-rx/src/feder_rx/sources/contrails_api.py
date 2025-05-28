@@ -17,7 +17,7 @@ from ..commands import (
     SourcePositionCommand, BatchSourcePositionCommand,
     EndOfDayCommand
 )
-from ..utils import round_time
+from ..utils import ceil_time
 
 
 logger = logging.getLogger(__name__)
@@ -198,7 +198,7 @@ class ContrailsAPISource(DateSource):
         retrieval_time = (
             datetime.now(timezone.utc) - self.config.data_lag(self.SOURCE)
         )
-        retrieval_time = round_time(retrieval_time, 'h')
+        retrieval_time = ceil_time(retrieval_time, 'h')
         retries = 0
         fix_count = 0
         latest_time = datetime(1, 1, 1)

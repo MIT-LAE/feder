@@ -4,7 +4,7 @@ import itertools
 from operator import itemgetter
 import os
 
-from feder.common import DB
+from feder.common import DB, DataSource
 
 
 def available_days() -> list[tuple[date, date]]:
@@ -24,6 +24,16 @@ def available_days() -> list[tuple[date, date]]:
     return ranges
 
 
+def available_sources(day: date) -> set[DataSource]:
+    """Return data sources in use on a given day."""
+    data_dir = os.environ.get('FEDER_DATA_DIR')
+    if data_dir is None:
+        raise ValueError('environment variable FEDER_DATA_DIR must be set')
+
+    # Get all data sources from the database.
+    return DB(data_dir, day).data_sources()
+
+
 def available_times(day: date) -> list[tuple[datetime, datetime]]:
     """Get a list of available times for a given day."""
     data_dir = os.environ.get('FEDER_DATA_DIR')
@@ -36,8 +46,12 @@ def available_times(day: date) -> list[tuple[datetime, datetime]]:
     # Union the timestamp ranges.
     merged = union_of_ranges(timestamp_ranges)
 
+    # Convert to datetime values and clip to the given day.
+    minval = datetime.combine(day, datetime.min.time())
+    maxval = datetime.combine(day, datetime.max.time())
     return [
-        (datetime.fromtimestamp(r[0]), datetime.fromtimestamp(r[1]))
+        (max(minval, datetime.fromtimestamp(r[0])),
+         min(maxval, datetime.fromtimestamp(r[1])))
         for r in merged
     ]
 

@@ -3,6 +3,8 @@ from subprocess import CalledProcessError, run
 
 
 def get_feder_version() -> str:
+    """Return current Feder API version."""
+
     feder_version = None
     try:
         feder_version = version('feder')
