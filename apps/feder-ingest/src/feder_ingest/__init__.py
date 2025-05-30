@@ -18,7 +18,7 @@ from .db_cache import DBCache
 from .processor import Processor
 
 
-__version__ = '0.1.8'
+__version__ = '0.1.9'
 
 
 logger = logging.getLogger(__name__)
