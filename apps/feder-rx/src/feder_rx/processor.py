@@ -79,9 +79,6 @@ class Processor:
         # data flow is more moderate.
         self._ingester_trajectory_counts = []
         self._ingester_ref_times = []
-        self._trajectory_tranche_size = 1000
-        self._trajectory_tranche_progress = 0
-        self._trajectory_tranche_waiting = False
 
     def run(self) -> None:
         # Process messages from command queue.
@@ -268,14 +265,6 @@ class Processor:
             )
             return False
 
-        # If the ingester is not too far behind, we can send trajectories.
-        # Calculate a good number to send based on the ingestion rate.
-        self._trajectory_tranche_size = round(
-            int(5 * ingester_rate * self.ingester_liveness_interval), -2
-        )
-        self._trajectory_tranche_progress = 0
-        self._trajectory_tranche_waiting = False
-
         return True
 
     def _process_ack_nack(
@@ -313,20 +302,6 @@ class Processor:
         fix_counter.labels(source=self.name).inc(len(cmd.source_ids))
         latest_fix_time_gauge.labels(source=self.name).set(self._fix_time_latest.timestamp())
         return len(cmd.source_ids)
-
-    def _trajectory_tranche_control(self, ntrajs: int) -> None:
-        # TODO: DO SOMETHING TO STOP THIS KICKING IN AFTER FILE DOWNLOADS...
-        self._trajectory_tranche_progress += ntrajs
-        if (
-            self._trajectory_tranche_progress >= self._trajectory_tranche_size and
-            not self._trajectory_tranche_waiting
-        ):
-            self._trajectory_tranche_waiting = True
-            logger.info(
-                'trajectory tranche filled (%s) - waiting...',
-                self._trajectory_tranche_progress
-            )
-            self.source_control.pause()
 
     def _source_done(self, latest_time: datetime) -> None:
         # Run a final trajectory completion cycle and mark that we
@@ -374,8 +349,6 @@ class Processor:
         trajectory_counter.labels(source=self.name).inc(delta)
         if message_number is not None:
             self._pending_rmq_messages[message_number] = source_ids
-        if self.historical:
-            self._trajectory_tranche_control(len(payloads))
 
     def _identify_complete_trajectories(self, final: bool = False) -> list[str]:
         if final:

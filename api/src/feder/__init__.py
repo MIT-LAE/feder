@@ -36,6 +36,29 @@ natural way to think about this data for most applications, this also makes
 storing and querying the flight data much more efficient than a solution that
 deals only with individual position fixes.
 
+## Data units
+
+All data values are reported from Feder exactly as they come from the flight
+data providers. [Experiments have
+shown](https://github.mit.edu/iross/flight-data-project/blob/main/experiments/flight-data-comparison/flight-data-comparison.pdf)
+that the different data providers (at least FlightAware and the Contrails API)
+provide comparable data, in the sense that the data is exactly what is sent by
+the aircraft's ADS-B transponder. (FlightAware does some data cleaning using
+other sources, but they make the result look as though it came from the ADS-B
+transponder, just with any anomalous values being cleaned up.)
+
+For the user of data from Feder, what this means is:
+
+ - Latitude and longitude values are "normal" WGS-84 latitudes and longitudes;
+
+ - The `alt` field of `feder.Point` contains uncorrected [pressure
+   altitude](https://en.wikipedia.org/wiki/Pressure_altitude) in feet
+   (relative to 1013 hPa) as reported in ADS-B messages;
+
+ - The `alt_gnss` field of `feder.Point` contains GNSS height in feet relative
+   to the WGS-84 datum.
+
+
 ## API quickstart
 
 There is a detailed tutorial for the API [here](feder/tutorial.html), but to
@@ -68,6 +91,7 @@ See the [tutorial](feder/tutorial.html) or the API reference documentation
 below for details.
 
 ## API documentation
+
 """
 
 from .query import get_flights, FlightQuery  # noqa

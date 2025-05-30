@@ -148,7 +148,7 @@ class DB:
             self, source: DataSource, source_id: str
     ) -> Trajectory | None:
         # Return a single result from _retrieve's generator.
-        return next(self._retrieve(source, 'source_id = ?', source_id), None)
+        return next(self._retrieve(source, ids=[source_id]), None)
 
     def timestamp_ranges(self) -> list[tuple[int, int]]:
         cur = self.cursor()
@@ -238,15 +238,15 @@ class DB:
 
         # Batch the IDs to keep the length of SQL queries reasonable.
         for batch in batched(ids, 50):
-            yield from self._retrieve(source, callsign, orig, dest, list(batch))
+            yield from self._retrieve(source, list(batch), callsign, orig, dest)
 
     def _retrieve(
             self,
             source: DataSource | None,
-            callsign: str | None,
-            orig: str | None,
-            dest: str | None,
-            ids: str | list[str]
+            ids: str | list[str],
+            callsign: str | None = None,
+            orig: str | None = None,
+            dest: str | None = None
     ) -> Generator[Trajectory, None, None]:
         # Normalize ID list parameter.
         if not isinstance(ids, list):

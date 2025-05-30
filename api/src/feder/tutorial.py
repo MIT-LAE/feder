@@ -176,8 +176,9 @@ have fields for:
 - the ICAO aircraft type (`aircraft_type`),
 
 plus the flight trajectory as a list of `feder.Point` values, each of which
-has time, latitude, longitude, altitude (`alt` for pressure altitude and
-`alt_gnss` for GNSS height), heading and an "on ground" flag.
+has time, latitude, longitude, altitude (`alt` for uncorrected pressure
+altitude in feet above 1013 hPa and `alt_gnss` for GNSS height in feet
+relative to the WGS-84 datum), heading and an "on ground" flag.
 
 Here's part of the data for one flight:
 

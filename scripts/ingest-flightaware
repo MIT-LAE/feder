@@ -1,0 +1,17 @@
+#!/bin/bash
+
+export RUN_DIR=/home/mcast/code/feder
+export FEDER_CONFIG=/home/mcast/misc-config/feder-config.toml
+export DATA_DIR=/net/d15/data/vmeijer/flightaware/raw
+
+year=$1
+day_start=$2
+day_end=$3
+
+day=$day_start
+while [[ $day -le $day_end ]]
+do
+    echo uv run --directory $RUN_DIR feder-rx csv $DATA_DIR/$year/$(printf "%03d" $day)/$year-\*.csv
+    uv run --directory $RUN_DIR feder-rx csv $DATA_DIR/$year/$(printf "%03d" $day)/$year-\*.csv
+    day=$((day+1))
+done

@@ -57,28 +57,13 @@ def run(debug: bool, config: str | None) -> None:
     # Set up command queue.
     queue = PriorityQueue(10)
 
-    # Set up RabbitMQ handler.
     name = 'ingester'
-    rmq = RMQ(
-        name=name,
-        parameters=rmq_parameters(cfg),
-        out_queue=queue,
-        message_class=Message,
-        exchanges=[RMQ_TRAJECTORY_EXCHANGE],
-        consumers=[
-            Consumer(RMQ_TRAJECTORY_EXCHANGE, TrajectoryBatch, durable=True)
-        ],
-        wrapper_class=RMQCommand,
-        rpc_client=True,
-        rpc_server=[IngesterLivenessChecker.RPC_ENDPOINT_NAME],
-        rpc_endpoints=IngesterLivenessChecker.RPC_ENDPOINTS
-    )
 
-    # Set up checkpoint timer thread.
-    checkpoint_timer = CheckpointTimerThread(queue)
-
+    # For exception handling...
     db = None
+    rmq = None
     processor = None
+    checkpoint_timer = None
 
     # Signal handling for tidy cleanup.
     def stop(_signum, _frame):
@@ -96,11 +81,30 @@ def run(debug: bool, config: str | None) -> None:
     clean_stop = False
     while not clean_stop:
         try:
+            # Set up RabbitMQ handler.
+            rmq = RMQ(
+                name=name,
+                parameters=rmq_parameters(cfg),
+                out_queue=queue,
+                message_class=Message,
+                exchanges=[RMQ_TRAJECTORY_EXCHANGE],
+                consumers=[
+                    Consumer(RMQ_TRAJECTORY_EXCHANGE, TrajectoryBatch, durable=True)
+                ],
+                wrapper_class=RMQCommand,
+                rpc_client=True,
+                rpc_server=[IngesterLivenessChecker.RPC_ENDPOINT_NAME],
+                rpc_endpoints=IngesterLivenessChecker.RPC_ENDPOINTS
+            )
+
             # Connect to RabbitMQ.
             rmq.start()
 
             # Set up database connection cache.
             db = DBCache(cfg.data_directory)
+
+            # Set up checkpoint timer thread.
+            checkpoint_timer = CheckpointTimerThread(queue)
 
             # Start checkpoint timer thread.
             checkpoint_timer.start()
@@ -116,14 +120,18 @@ def run(debug: bool, config: str | None) -> None:
             logger.exception('unhandled exception in ingester')
             error_counter.labels(source='ingester').inc()
         finally:
-            checkpoint_timer.stop()
+            if checkpoint_timer is not None:
+                checkpoint_timer.stop()
+                checkpoint_timer = None
             if db is not None:
                 db.close()
                 db = None
 
             # If we get here, the ingester has already stopped, so we just need to
             # clean up RabbitMQ.
-            rmq.stop()
+            if rmq is not None:
+                rmq.stop()
+                rmq = None
 
             # Drain the command queue to prevent any threads that want to
             # write to it getting stuck.

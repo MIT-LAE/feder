@@ -166,30 +166,13 @@ def run(
     if purge_staging:
         db.purge()
 
-    # Set up RabbitMQ handler.
     name=f'rx-{name}'
-    rmq = RMQ(
-        name=name,
-        parameters=rmq_parameters(cfg),
-        out_queue=command_queue,
-        message_class=Message,
-        exchanges=[RMQ_TRAJECTORY_EXCHANGE],
-        wrapper_class=RMQCommand,
-        rpc_client=True,
-        rpc_endpoints=IngesterLivenessChecker.RPC_ENDPOINTS
-    )
 
     # Set up data source handler.
     data_source = source(
         cfg, command_queue,
         start_time=start_datetime, end_time=end_datetime,
         file_cache=file_cache, glob_args=glob_args
-    )
-
-    # Set up ingester liveness checking.
-    ingester_liveness = IngesterLivenessChecker(
-        rmq, 'ingester', command_queue, IngesterStatusCommand,
-        ok_check_interval=1
     )
 
     # Signal handling for tidy cleanup.
@@ -204,10 +187,27 @@ def run(
     clean_stop = False
     while not clean_stop:
         try:
+            # Set up RabbitMQ handler.
+            rmq = RMQ(
+                name=name,
+                parameters=rmq_parameters(cfg),
+                out_queue=command_queue,
+                message_class=Message,
+                exchanges=[RMQ_TRAJECTORY_EXCHANGE],
+                wrapper_class=RMQCommand,
+                rpc_client=True,
+                rpc_endpoints=IngesterLivenessChecker.RPC_ENDPOINTS
+            )
+
             # Start RabbitMQ handler (waits for connection to RabbitMQ
             # broker and throws an exception if it takes too long to get
             # set up).
             rmq.start()
+
+            # Set up ingester liveness checking.
+            ingester_liveness = IngesterLivenessChecker(
+                rmq, 'ingester', command_queue, IngesterStatusCommand
+            )
 
             # Start the ingester liveness checker and wait for the ingester to be
             # available.
@@ -240,8 +240,10 @@ def run(
                 data_source.stop()
             if ingester_liveness is not None:
                 ingester_liveness.stop()
+                ingester_liveness = None
             if rmq is not None:
                 rmq.stop()
+                rmq = None
 
             # Drain the command queue to prevent any threads that want to
             # write to it getting stuck.

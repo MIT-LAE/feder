@@ -141,7 +141,7 @@ class FlightQuery:
         included_dates = [
             self._min_time.date() + timedelta(days=i)
             for i in range(
-                    (self._max_time.date() - self._min_time.date()).days + 1
+                    -1, (self._max_time.date() - self._min_time.date()).days + 2
             )
         ]
 
