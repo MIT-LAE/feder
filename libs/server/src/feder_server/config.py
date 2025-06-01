@@ -1,5 +1,5 @@
-import logging
 import os
+import logging
 import sys
 import tomllib
 from typing import Any

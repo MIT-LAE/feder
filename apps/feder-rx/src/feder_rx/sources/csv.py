@@ -76,8 +76,15 @@ class CSVSource(FileSource):
             for row in csv.reader(fp):
                 # Columns aren't in a fixed order so use a helper to handle
                 # the column extraction.
-                if idx.fill(row):
-                    continue
+                try:
+                    if idx.fill(row):
+                        continue
+                except Exception:
+                    # An exception here means that we have an ill-formed CSV
+                    # input, probably because there was an error getting the
+                    # original FlightAware data.
+                    logger.info('invalid columns in file, skipping %s', filename)
+                    return
 
                 # One source position command per row.
                 self._source_ids.append(row[idx.id_col])
