@@ -1,15 +1,14 @@
 import csv
-from datetime import datetime
 import logging
+from datetime import datetime
 from queue import Queue
 from typing import Generator
 
+from feder_common import DataSource
 from feder_server import Config
 
-from feder_common import DataSource
-from ..commands import Command, BatchSourcePositionCommand
+from ..commands import BatchSourcePositionCommand, Command
 from . import FileSource
-
 
 logger = logging.getLogger(__name__)
 
@@ -87,19 +86,25 @@ class CSVSource(FileSource):
                     return
 
                 # One source position command per row.
-                self._source_ids.append(row[idx.id_col])
-                self._transponder_ids.append(row[idx.hexid_col])
-                self._times.append(datetime.fromtimestamp(int(row[idx.clock_col])))
-                self._callsigns.append(row[idx.ident_col])
-                self._origs.append(n(row, idx.orig_col, str))
-                self._dests.append(n(row, idx.dest_col, str))
-                self._aircraft_types.append(n(row, idx.aircraft_type_col, str))
-                self._lats.append(float(row[idx.lat_col]))
-                self._lons.append(float(row[idx.lon_col]))
-                self._alts.append(n(row, idx.alt_col, int))
-                self._alts_gnss.append(n(row, idx.alt_gnss_col, int))
-                self._headings.append(n(row, idx.heading_col, float))
-                self._on_grounds.append(row[idx.air_ground_col] == 'G')
+                try:
+                    self._source_ids.append(row[idx.id_col])
+                    self._transponder_ids.append(row[idx.hexid_col])
+                    self._times.append(datetime.fromtimestamp(int(row[idx.clock_col])))
+                    self._callsigns.append(row[idx.ident_col])
+                    self._origs.append(n(row, idx.orig_col, str))
+                    self._dests.append(n(row, idx.dest_col, str))
+                    self._aircraft_types.append(n(row, idx.aircraft_type_col, str))
+                    self._lats.append(float(row[idx.lat_col]))
+                    self._lons.append(float(row[idx.lon_col]))
+                    self._alts.append(n(row, idx.alt_col, int))
+                    self._alts_gnss.append(n(row, idx.alt_gnss_col, int))
+                    self._headings.append(n(row, idx.heading_col, float))
+                    self._on_grounds.append(row[idx.air_ground_col] == 'G')
+                except Exception:
+                    # Skip bad rows. They're often rows with FlightAware error
+                    # messages in them, and we don't care too much about those.
+                    logger.exception('error processing row: %s', ','.join(row))
+                    continue
                 self._nrows += 1
 
                 if self._nrows == self.BATCH_SIZE:
