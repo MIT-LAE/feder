@@ -184,6 +184,7 @@ def run(
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
+    error_counter.labels(source=name).inc(0)
     clean_stop = False
     while not clean_stop:
         try:

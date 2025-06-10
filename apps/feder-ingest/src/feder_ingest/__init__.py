@@ -77,6 +77,7 @@ def run(debug: bool, config: str | None) -> None:
     # errors and should be diagnosed via logging. All errors after this point
     # cause an increment in the Prometheus error_counter metric so that they
     # can be captured by monitoring alerts.
+    error_counter.labels(source='ingester').inc(0)
 
     clean_stop = False
     while not clean_stop:
