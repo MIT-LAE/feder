@@ -215,7 +215,7 @@ class RMQ(Thread):
             infrastructure setup when starting RabbitMQ handler thread
 
         """
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, daemon=True, **kwargs)
 
         self.name = name
         self.parameters = parameters

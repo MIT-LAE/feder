@@ -1,7 +1,7 @@
 [project]
 name = "feder-rx"
 version = "0.1.11"
-description = "Add your description here"
+description = "Feder receiver"
 readme = "README.md"
 authors = [
     { name = "Ian Ross", email = "iross@mit.edu" }

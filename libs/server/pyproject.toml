@@ -1,7 +1,7 @@
 [project]
 name = "feder-server"
 version = "0.1.11"
-description = "Add your description here"
+description = "Library for shared server-side code in Feder"
 readme = "README.md"
 authors = [
     { name = "Ian Ross", email = "iross@mit.edu" }

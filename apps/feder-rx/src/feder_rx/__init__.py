@@ -10,10 +10,11 @@ import click
 from prometheus_client import start_http_server
 
 from feder_server import (
-    logging_setup, Config, RMQ, rmq_parameters,
+    logging_setup, Config, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, Message, IngesterLivenessChecker,
     error_counter, set_version
 )
+from feder_server.rmq import RMQ
 
 from .commands import IngesterStatusCommand, RMQCommand
 from .sources.contrails_api import ContrailsAPISource

@@ -1,5 +1,4 @@
 import logging
-import os
 from queue import PriorityQueue
 import signal
 
@@ -7,11 +6,12 @@ import click
 from prometheus_client import start_http_server
 
 from feder_server import (
-    logging_setup, Config, RMQ, rmq_parameters,
+    logging_setup, Config, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE,
-    IngesterLivenessChecker, Consumer, Message, TrajectoryBatch,
+    IngesterLivenessChecker, Message, TrajectoryBatch,
     error_counter, set_version, TimerThread
 )
+from feder_server.rmq import RMQ, Consumer
 
 from .commands import RMQCommand, CheckpointCommand
 from .db_cache import DBCache
