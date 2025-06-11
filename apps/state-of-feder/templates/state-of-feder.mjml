@@ -1,0 +1,39 @@
+<mjml>
+  <mj-body>
+    <mj-section>
+      <mj-column>
+        <mj-text font-style="italic" font-size="14px">
+          State of Feder: ${report_time} UTC
+        </mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section>
+      <mj-column>
+        <mj-text font-style="bold" font-size="16px">
+          Available dates
+        </mj-text>
+        <mj-table>
+          <tr style="border-bottom:1px solid #ecedee;text-align:left;padding:15px 0;">
+            <th>From</th>
+            <th>To</th>
+          </tr>
+          ${available_date_rows}
+        </mj-table>
+      </mj-column>
+    </mj-section>
+    <mj-section>
+      <mj-column>
+        <mj-text font-style="bold" font-size="16px">
+          Smallest file sizes
+        </mj-text>
+        <mj-table>
+          <tr style="border-bottom:1px solid #ecedee;text-align:left;padding:15px 0;">
+            <th>Date</th>
+            <th>Size (MB)</th>
+          </tr>
+          ${small_size_rows}
+        </mj-table>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

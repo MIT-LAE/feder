@@ -81,6 +81,12 @@ class Config:
             'ingester', 'prometheus-port'
         )
         self._source_prometheus_ports: dict[DataSource, int | None] = self._get_sources_opt_int('prometheus-port')
+        self.mailjet_api_key = self._get_str('mailjet', 'api_key')
+        self.mailjet_secret_key = self._get_str('mailjet', 'secret_key')
+        self.from_email = self._get_str('mailjet', 'from_email')
+        self.from_name = self._get_str('mailjet', 'from_name')
+        self.to_email = self._get_str('mailjet', 'to_email')
+        self.to_name = self._get_str('mailjet', 'to_name')
 
     def _init_sources(self):
         def_comp_delay: Timedelta = self._get_interval(
