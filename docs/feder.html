@@ -27,6 +27,7 @@
   <li><a href="#feder-flight-data-collection-system">Feder flight data collection system</a>
   <ul>
     <li><a href="#concepts-positions-vs-trajectories">Concepts: positions vs. trajectories</a></li>
+    <li><a href="#data-units">Data units</a></li>
     <li><a href="#api-quickstart">API quickstart</a></li>
     <li><a href="#api-documentation">API documentation</a></li>
   </ul></li>
@@ -293,6 +294,28 @@ natural way to think about this data for most applications, this also makes
 storing and querying the flight data much more efficient than a solution that
 deals only with individual position fixes.</p>
 
+<h2 id="data-units">Data units</h2>
+
+<p>All data values are reported from Feder exactly as they come from the flight
+data providers. <a href="https://github.mit.edu/iross/flight-data-project/blob/main/experiments/flight-data-comparison/flight-data-comparison.pdf">Experiments have
+shown</a>
+that the different data providers (at least FlightAware and the Contrails API)
+provide comparable data, in the sense that the data is exactly what is sent by
+the aircraft's ADS-B transponder. (FlightAware does some data cleaning using
+other sources, but they make the result look as though it came from the ADS-B
+transponder, just with any anomalous values being cleaned up.)</p>
+
+<p>For the user of data from Feder, what this means is:</p>
+
+<ul>
+<li><p>Latitude and longitude values are "normal" WGS-84 latitudes and longitudes;</p></li>
+<li><p>The <code>alt</code> field of <code><a href="#Point">feder.Point</a></code> contains uncorrected <a href="https://en.wikipedia.org/wiki/Pressure_altitude">pressure
+altitude</a> in feet
+(relative to 1013 hPa) as reported in ADS-B messages;</p></li>
+<li><p>The <code>alt_gnss</code> field of <code><a href="#Point">feder.Point</a></code> contains GNSS height in feet relative
+to the WGS-84 datum.</p></li>
+</ul>
+
 <h2 id="api-quickstart">API quickstart</h2>
 
 <p>There is a detailed tutorial for the API <a href="feder/tutorial.html">here</a>, but to
@@ -300,7 +323,7 @@ get started quickly and check that things are working, you can do this in the
 shell:</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>/home/mcast/feder/dist/feder-0.1.8-py3-none-any.whl
+<pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>/home/mcast/feder/dist/feder-0.1.12-py3-none-any.whl
 <span class="nb">export</span><span class="w"> </span><span class="nv">FEDER_DATA_DIR</span><span class="o">=</span>/home/mcast/data/feder
 </code></pre>
 </div>
@@ -332,104 +355,128 @@ below for details.</p>
 
                         <label class="view-source-button" for="mod-feder-view-source"><span>View Source</span></label>
 
-                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos"> 1</span></a><span class="sd">&quot;&quot;&quot;# Feder flight data collection system</span>
-</span><span id="L-2"><a href="#L-2"><span class="linenos"> 2</span></a>
-</span><span id="L-3"><a href="#L-3"><span class="linenos"> 3</span></a><span class="sd">Feder is a system for collecting flight data from a range of sources into a</span>
-</span><span id="L-4"><a href="#L-4"><span class="linenos"> 4</span></a><span class="sd">consolidated database for applications that need easy access to historical</span>
-</span><span id="L-5"><a href="#L-5"><span class="linenos"> 5</span></a><span class="sd">flight data for statistical or flight attribution purposes. It comes in two</span>
-</span><span id="L-6"><a href="#L-6"><span class="linenos"> 6</span></a><span class="sd">main parts:</span>
-</span><span id="L-7"><a href="#L-7"><span class="linenos"> 7</span></a>
-</span><span id="L-8"><a href="#L-8"><span class="linenos"> 8</span></a><span class="sd">1. An API (published as a Python package) for querying the collected data.</span>
-</span><span id="L-9"><a href="#L-9"><span class="linenos"> 9</span></a><span class="sd">   This data is stored in SQLite3 database files, and the API provides a</span>
-</span><span id="L-10"><a href="#L-10"><span class="linenos">10</span></a><span class="sd">   simple interface for making efficient queries to these database files.</span>
-</span><span id="L-11"><a href="#L-11"><span class="linenos">11</span></a>
-</span><span id="L-12"><a href="#L-12"><span class="linenos">12</span></a><span class="sd">2. A set of server processes that collaborate to collect and integrate data</span>
-</span><span id="L-13"><a href="#L-13"><span class="linenos">13</span></a><span class="sd">   from different flight data sources, plus infrastructure to deploy these</span>
-</span><span id="L-14"><a href="#L-14"><span class="linenos">14</span></a><span class="sd">   server processes so that they work correctly together.</span>
-</span><span id="L-15"><a href="#L-15"><span class="linenos">15</span></a>
-</span><span id="L-16"><a href="#L-16"><span class="linenos">16</span></a><span class="sd">**The name**: *Feder* is the German word for &quot;feather&quot; and is also supposed to</span>
-</span><span id="L-17"><a href="#L-17"><span class="linenos">17</span></a><span class="sd">give the feeling of **F**light **D**ata **R**ecorder. It&#39;s short and unique</span>
-</span><span id="L-18"><a href="#L-18"><span class="linenos">18</span></a><span class="sd">and easy to say (&quot;fay-der&quot;, more or less).</span>
-</span><span id="L-19"><a href="#L-19"><span class="linenos">19</span></a>
-</span><span id="L-20"><a href="#L-20"><span class="linenos">20</span></a><span class="sd">## Concepts: positions vs. trajectories</span>
-</span><span id="L-21"><a href="#L-21"><span class="linenos">21</span></a>
-</span><span id="L-22"><a href="#L-22"><span class="linenos">22</span></a><span class="sd">Flight data is usually provided by data sources like FlightAware&#39;s Firehose or</span>
-</span><span id="L-23"><a href="#L-23"><span class="linenos">23</span></a><span class="sd">the OpenSky network as individual flight *state vectors*, encoding a single</span>
-</span><span id="L-24"><a href="#L-24"><span class="linenos">24</span></a><span class="sd">snapshot in time of a flight&#39;s position. These state vectors are not *exactly*</span>
-</span><span id="L-25"><a href="#L-25"><span class="linenos">25</span></a><span class="sd">individual ADS-B position fixes, because most data provides filter the raw</span>
-</span><span id="L-26"><a href="#L-26"><span class="linenos">26</span></a><span class="sd">ADS-B fixes to reduce data volumes, but they do represent individual position</span>
-</span><span id="L-27"><a href="#L-27"><span class="linenos">27</span></a><span class="sd">fixes at a single point in time. For most applications, it is more useful to</span>
-</span><span id="L-28"><a href="#L-28"><span class="linenos">28</span></a><span class="sd">provide access to *flight trajectories*, i.e. all the position fixes for a</span>
-</span><span id="L-29"><a href="#L-29"><span class="linenos">29</span></a><span class="sd">given flight (possibly restricted to a selected temporal or spatial domain).</span>
-</span><span id="L-30"><a href="#L-30"><span class="linenos">30</span></a>
-</span><span id="L-31"><a href="#L-31"><span class="linenos">31</span></a><span class="sd">The Feder API works in terms of these trajectories (or parts of trajectories),</span>
-</span><span id="L-32"><a href="#L-32"><span class="linenos">32</span></a><span class="sd">and the server processes generate trajectory records for full flights by</span>
-</span><span id="L-33"><a href="#L-33"><span class="linenos">33</span></a><span class="sd">collecting position fixes until it appears that a flight is complete and then</span>
-</span><span id="L-34"><a href="#L-34"><span class="linenos">34</span></a><span class="sd">saving a full trajectory record for the flight. As well as being a more</span>
-</span><span id="L-35"><a href="#L-35"><span class="linenos">35</span></a><span class="sd">natural way to think about this data for most applications, this also makes</span>
-</span><span id="L-36"><a href="#L-36"><span class="linenos">36</span></a><span class="sd">storing and querying the flight data much more efficient than a solution that</span>
-</span><span id="L-37"><a href="#L-37"><span class="linenos">37</span></a><span class="sd">deals only with individual position fixes.</span>
-</span><span id="L-38"><a href="#L-38"><span class="linenos">38</span></a>
-</span><span id="L-39"><a href="#L-39"><span class="linenos">39</span></a><span class="sd">## API quickstart</span>
-</span><span id="L-40"><a href="#L-40"><span class="linenos">40</span></a>
-</span><span id="L-41"><a href="#L-41"><span class="linenos">41</span></a><span class="sd">There is a detailed tutorial for the API [here](feder/tutorial.html), but to</span>
-</span><span id="L-42"><a href="#L-42"><span class="linenos">42</span></a><span class="sd">get started quickly and check that things are working, you can do this in the</span>
-</span><span id="L-43"><a href="#L-43"><span class="linenos">43</span></a><span class="sd">shell:</span>
-</span><span id="L-44"><a href="#L-44"><span class="linenos">44</span></a>
-</span><span id="L-45"><a href="#L-45"><span class="linenos">45</span></a><span class="sd">``` shell</span>
-</span><span id="L-46"><a href="#L-46"><span class="linenos">46</span></a><span class="sd">pip install /home/mcast/feder/dist/feder-0.1.8-py3-none-any.whl</span>
-</span><span id="L-47"><a href="#L-47"><span class="linenos">47</span></a><span class="sd">export FEDER_DATA_DIR=/home/mcast/data/feder</span>
-</span><span id="L-48"><a href="#L-48"><span class="linenos">48</span></a><span class="sd">```</span>
-</span><span id="L-49"><a href="#L-49"><span class="linenos">49</span></a>
-</span><span id="L-50"><a href="#L-50"><span class="linenos">50</span></a><span class="sd">and then this in Python:</span>
-</span><span id="L-51"><a href="#L-51"><span class="linenos">51</span></a>
-</span><span id="L-52"><a href="#L-52"><span class="linenos">52</span></a><span class="sd">``` python</span>
-</span><span id="L-53"><a href="#L-53"><span class="linenos">53</span></a><span class="sd">from datetime import datetime, timedelta</span>
-</span><span id="L-54"><a href="#L-54"><span class="linenos">54</span></a><span class="sd">from feder import FlightQuery</span>
-</span><span id="L-55"><a href="#L-55"><span class="linenos">55</span></a><span class="sd">t1 = datetime(2025, 5, 22, 20, 0)</span>
-</span><span id="L-56"><a href="#L-56"><span class="linenos">56</span></a><span class="sd">t2 = t1 + timedelta(minutes=30)</span>
-</span><span id="L-57"><a href="#L-57"><span class="linenos">57</span></a><span class="sd">flights = list(FlightQuery(t1, t2).with_orig(&#39;KBOS&#39;).run())</span>
-</span><span id="L-58"><a href="#L-58"><span class="linenos">58</span></a>
-</span><span id="L-59"><a href="#L-59"><span class="linenos">59</span></a><span class="sd">```</span>
-</span><span id="L-60"><a href="#L-60"><span class="linenos">60</span></a>
-</span><span id="L-61"><a href="#L-61"><span class="linenos">61</span></a><span class="sd">This will return a Python array of 10</span>
-</span><span id="L-62"><a href="#L-62"><span class="linenos">62</span></a><span class="sd">[`Trajectory`](doc/api-reference.md#Trajectory) objects of flights crossing</span>
-</span><span id="L-63"><a href="#L-63"><span class="linenos">63</span></a><span class="sd">the given latitude/longitude bounding box in the one hour window starting at</span>
-</span><span id="L-64"><a href="#L-64"><span class="linenos">64</span></a><span class="sd">the given time (all times in UTC).</span>
-</span><span id="L-65"><a href="#L-65"><span class="linenos">65</span></a>
-</span><span id="L-66"><a href="#L-66"><span class="linenos">66</span></a><span class="sd">The API efficiently supports a range of query options and data return formats.</span>
-</span><span id="L-67"><a href="#L-67"><span class="linenos">67</span></a><span class="sd">See the [tutorial](feder/tutorial.html) or the API reference documentation</span>
-</span><span id="L-68"><a href="#L-68"><span class="linenos">68</span></a><span class="sd">below for details.</span>
-</span><span id="L-69"><a href="#L-69"><span class="linenos">69</span></a>
-</span><span id="L-70"><a href="#L-70"><span class="linenos">70</span></a><span class="sd">## API documentation</span>
-</span><span id="L-71"><a href="#L-71"><span class="linenos">71</span></a><span class="sd">&quot;&quot;&quot;</span>
-</span><span id="L-72"><a href="#L-72"><span class="linenos">72</span></a>
-</span><span id="L-73"><a href="#L-73"><span class="linenos">73</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.query</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_flights</span><span class="p">,</span> <span class="n">FlightQuery</span>  <span class="c1"># noqa</span>
-</span><span id="L-74"><a href="#L-74"><span class="linenos">74</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.available</span><span class="w"> </span><span class="kn">import</span> <span class="n">available_days</span><span class="p">,</span> <span class="n">available_times</span><span class="p">,</span> <span class="n">available_sources</span>  <span class="c1"># noqa</span>
-</span><span id="L-75"><a href="#L-75"><span class="linenos">75</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.common.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataSource</span><span class="p">,</span> <span class="n">Point</span><span class="p">,</span> <span class="n">Trajectory</span>  <span class="c1"># noqa</span>
-</span><span id="L-76"><a href="#L-76"><span class="linenos">76</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.common.db</span><span class="w"> </span><span class="kn">import</span> <span class="n">BoundingBox</span><span class="p">,</span> <span class="n">TemporalQueryType</span><span class="p">,</span> <span class="n">SpatialQueryType</span>  <span class="c1"># noqa</span>
-</span><span id="L-77"><a href="#L-77"><span class="linenos">77</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.common.version</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_feder_version</span>  <span class="c1"># noqa</span>
-</span><span id="L-78"><a href="#L-78"><span class="linenos">78</span></a>
-</span><span id="L-79"><a href="#L-79"><span class="linenos">79</span></a><span class="c1"># The following is needed just to build the documentation.</span>
-</span><span id="L-80"><a href="#L-80"><span class="linenos">80</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">feder.tutorial</span>  <span class="c1"># noqa</span>
-</span><span id="L-81"><a href="#L-81"><span class="linenos">81</span></a>
-</span><span id="L-82"><a href="#L-82"><span class="linenos">82</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
-</span><span id="L-83"><a href="#L-83"><span class="linenos">83</span></a>    <span class="s1">&#39;get_flights&#39;</span><span class="p">,</span>
-</span><span id="L-84"><a href="#L-84"><span class="linenos">84</span></a>    <span class="s1">&#39;FlightQuery&#39;</span><span class="p">,</span>
-</span><span id="L-85"><a href="#L-85"><span class="linenos">85</span></a>    <span class="s1">&#39;available_days&#39;</span><span class="p">,</span>
-</span><span id="L-86"><a href="#L-86"><span class="linenos">86</span></a>    <span class="s1">&#39;available_times&#39;</span><span class="p">,</span>
-</span><span id="L-87"><a href="#L-87"><span class="linenos">87</span></a>    <span class="s1">&#39;available_sources&#39;</span><span class="p">,</span>
-</span><span id="L-88"><a href="#L-88"><span class="linenos">88</span></a>    <span class="s1">&#39;DataSource&#39;</span><span class="p">,</span>
-</span><span id="L-89"><a href="#L-89"><span class="linenos">89</span></a>    <span class="s1">&#39;Point&#39;</span><span class="p">,</span>
-</span><span id="L-90"><a href="#L-90"><span class="linenos">90</span></a>    <span class="s1">&#39;Trajectory&#39;</span><span class="p">,</span>
-</span><span id="L-91"><a href="#L-91"><span class="linenos">91</span></a>    <span class="s1">&#39;BoundingBox&#39;</span><span class="p">,</span>
-</span><span id="L-92"><a href="#L-92"><span class="linenos">92</span></a>    <span class="s1">&#39;TemporalQueryType&#39;</span><span class="p">,</span>
-</span><span id="L-93"><a href="#L-93"><span class="linenos">93</span></a>    <span class="s1">&#39;SpatialQueryType&#39;</span><span class="p">,</span>
-</span><span id="L-94"><a href="#L-94"><span class="linenos">94</span></a>    <span class="s1">&#39;get_feder_version&#39;</span><span class="p">,</span>
-</span><span id="L-95"><a href="#L-95"><span class="linenos">95</span></a>    <span class="s1">&#39;tutorial&#39;</span>
-</span><span id="L-96"><a href="#L-96"><span class="linenos">96</span></a><span class="p">]</span>
-</span><span id="L-97"><a href="#L-97"><span class="linenos">97</span></a>
-</span><span id="L-98"><a href="#L-98"><span class="linenos">98</span></a><span class="n">__version__</span> <span class="o">=</span> <span class="s1">&#39;0.1.8&#39;</span>
+                        <div class="pdoc-code codehilite"><pre><span></span><span id="L-1"><a href="#L-1"><span class="linenos">  1</span></a><span class="sd">&quot;&quot;&quot;# Feder flight data collection system</span>
+</span><span id="L-2"><a href="#L-2"><span class="linenos">  2</span></a>
+</span><span id="L-3"><a href="#L-3"><span class="linenos">  3</span></a><span class="sd">Feder is a system for collecting flight data from a range of sources into a</span>
+</span><span id="L-4"><a href="#L-4"><span class="linenos">  4</span></a><span class="sd">consolidated database for applications that need easy access to historical</span>
+</span><span id="L-5"><a href="#L-5"><span class="linenos">  5</span></a><span class="sd">flight data for statistical or flight attribution purposes. It comes in two</span>
+</span><span id="L-6"><a href="#L-6"><span class="linenos">  6</span></a><span class="sd">main parts:</span>
+</span><span id="L-7"><a href="#L-7"><span class="linenos">  7</span></a>
+</span><span id="L-8"><a href="#L-8"><span class="linenos">  8</span></a><span class="sd">1. An API (published as a Python package) for querying the collected data.</span>
+</span><span id="L-9"><a href="#L-9"><span class="linenos">  9</span></a><span class="sd">   This data is stored in SQLite3 database files, and the API provides a</span>
+</span><span id="L-10"><a href="#L-10"><span class="linenos"> 10</span></a><span class="sd">   simple interface for making efficient queries to these database files.</span>
+</span><span id="L-11"><a href="#L-11"><span class="linenos"> 11</span></a>
+</span><span id="L-12"><a href="#L-12"><span class="linenos"> 12</span></a><span class="sd">2. A set of server processes that collaborate to collect and integrate data</span>
+</span><span id="L-13"><a href="#L-13"><span class="linenos"> 13</span></a><span class="sd">   from different flight data sources, plus infrastructure to deploy these</span>
+</span><span id="L-14"><a href="#L-14"><span class="linenos"> 14</span></a><span class="sd">   server processes so that they work correctly together.</span>
+</span><span id="L-15"><a href="#L-15"><span class="linenos"> 15</span></a>
+</span><span id="L-16"><a href="#L-16"><span class="linenos"> 16</span></a><span class="sd">**The name**: *Feder* is the German word for &quot;feather&quot; and is also supposed to</span>
+</span><span id="L-17"><a href="#L-17"><span class="linenos"> 17</span></a><span class="sd">give the feeling of **F**light **D**ata **R**ecorder. It&#39;s short and unique</span>
+</span><span id="L-18"><a href="#L-18"><span class="linenos"> 18</span></a><span class="sd">and easy to say (&quot;fay-der&quot;, more or less).</span>
+</span><span id="L-19"><a href="#L-19"><span class="linenos"> 19</span></a>
+</span><span id="L-20"><a href="#L-20"><span class="linenos"> 20</span></a><span class="sd">## Concepts: positions vs. trajectories</span>
+</span><span id="L-21"><a href="#L-21"><span class="linenos"> 21</span></a>
+</span><span id="L-22"><a href="#L-22"><span class="linenos"> 22</span></a><span class="sd">Flight data is usually provided by data sources like FlightAware&#39;s Firehose or</span>
+</span><span id="L-23"><a href="#L-23"><span class="linenos"> 23</span></a><span class="sd">the OpenSky network as individual flight *state vectors*, encoding a single</span>
+</span><span id="L-24"><a href="#L-24"><span class="linenos"> 24</span></a><span class="sd">snapshot in time of a flight&#39;s position. These state vectors are not *exactly*</span>
+</span><span id="L-25"><a href="#L-25"><span class="linenos"> 25</span></a><span class="sd">individual ADS-B position fixes, because most data provides filter the raw</span>
+</span><span id="L-26"><a href="#L-26"><span class="linenos"> 26</span></a><span class="sd">ADS-B fixes to reduce data volumes, but they do represent individual position</span>
+</span><span id="L-27"><a href="#L-27"><span class="linenos"> 27</span></a><span class="sd">fixes at a single point in time. For most applications, it is more useful to</span>
+</span><span id="L-28"><a href="#L-28"><span class="linenos"> 28</span></a><span class="sd">provide access to *flight trajectories*, i.e. all the position fixes for a</span>
+</span><span id="L-29"><a href="#L-29"><span class="linenos"> 29</span></a><span class="sd">given flight (possibly restricted to a selected temporal or spatial domain).</span>
+</span><span id="L-30"><a href="#L-30"><span class="linenos"> 30</span></a>
+</span><span id="L-31"><a href="#L-31"><span class="linenos"> 31</span></a><span class="sd">The Feder API works in terms of these trajectories (or parts of trajectories),</span>
+</span><span id="L-32"><a href="#L-32"><span class="linenos"> 32</span></a><span class="sd">and the server processes generate trajectory records for full flights by</span>
+</span><span id="L-33"><a href="#L-33"><span class="linenos"> 33</span></a><span class="sd">collecting position fixes until it appears that a flight is complete and then</span>
+</span><span id="L-34"><a href="#L-34"><span class="linenos"> 34</span></a><span class="sd">saving a full trajectory record for the flight. As well as being a more</span>
+</span><span id="L-35"><a href="#L-35"><span class="linenos"> 35</span></a><span class="sd">natural way to think about this data for most applications, this also makes</span>
+</span><span id="L-36"><a href="#L-36"><span class="linenos"> 36</span></a><span class="sd">storing and querying the flight data much more efficient than a solution that</span>
+</span><span id="L-37"><a href="#L-37"><span class="linenos"> 37</span></a><span class="sd">deals only with individual position fixes.</span>
+</span><span id="L-38"><a href="#L-38"><span class="linenos"> 38</span></a>
+</span><span id="L-39"><a href="#L-39"><span class="linenos"> 39</span></a><span class="sd">## Data units</span>
+</span><span id="L-40"><a href="#L-40"><span class="linenos"> 40</span></a>
+</span><span id="L-41"><a href="#L-41"><span class="linenos"> 41</span></a><span class="sd">All data values are reported from Feder exactly as they come from the flight</span>
+</span><span id="L-42"><a href="#L-42"><span class="linenos"> 42</span></a><span class="sd">data providers. [Experiments have</span>
+</span><span id="L-43"><a href="#L-43"><span class="linenos"> 43</span></a><span class="sd">shown](https://github.mit.edu/iross/flight-data-project/blob/main/experiments/flight-data-comparison/flight-data-comparison.pdf)</span>
+</span><span id="L-44"><a href="#L-44"><span class="linenos"> 44</span></a><span class="sd">that the different data providers (at least FlightAware and the Contrails API)</span>
+</span><span id="L-45"><a href="#L-45"><span class="linenos"> 45</span></a><span class="sd">provide comparable data, in the sense that the data is exactly what is sent by</span>
+</span><span id="L-46"><a href="#L-46"><span class="linenos"> 46</span></a><span class="sd">the aircraft&#39;s ADS-B transponder. (FlightAware does some data cleaning using</span>
+</span><span id="L-47"><a href="#L-47"><span class="linenos"> 47</span></a><span class="sd">other sources, but they make the result look as though it came from the ADS-B</span>
+</span><span id="L-48"><a href="#L-48"><span class="linenos"> 48</span></a><span class="sd">transponder, just with any anomalous values being cleaned up.)</span>
+</span><span id="L-49"><a href="#L-49"><span class="linenos"> 49</span></a>
+</span><span id="L-50"><a href="#L-50"><span class="linenos"> 50</span></a><span class="sd">For the user of data from Feder, what this means is:</span>
+</span><span id="L-51"><a href="#L-51"><span class="linenos"> 51</span></a>
+</span><span id="L-52"><a href="#L-52"><span class="linenos"> 52</span></a><span class="sd"> - Latitude and longitude values are &quot;normal&quot; WGS-84 latitudes and longitudes;</span>
+</span><span id="L-53"><a href="#L-53"><span class="linenos"> 53</span></a>
+</span><span id="L-54"><a href="#L-54"><span class="linenos"> 54</span></a><span class="sd"> - The `alt` field of `feder.Point` contains uncorrected [pressure</span>
+</span><span id="L-55"><a href="#L-55"><span class="linenos"> 55</span></a><span class="sd">   altitude](https://en.wikipedia.org/wiki/Pressure_altitude) in feet</span>
+</span><span id="L-56"><a href="#L-56"><span class="linenos"> 56</span></a><span class="sd">   (relative to 1013 hPa) as reported in ADS-B messages;</span>
+</span><span id="L-57"><a href="#L-57"><span class="linenos"> 57</span></a>
+</span><span id="L-58"><a href="#L-58"><span class="linenos"> 58</span></a><span class="sd"> - The `alt_gnss` field of `feder.Point` contains GNSS height in feet relative</span>
+</span><span id="L-59"><a href="#L-59"><span class="linenos"> 59</span></a><span class="sd">   to the WGS-84 datum.</span>
+</span><span id="L-60"><a href="#L-60"><span class="linenos"> 60</span></a>
+</span><span id="L-61"><a href="#L-61"><span class="linenos"> 61</span></a>
+</span><span id="L-62"><a href="#L-62"><span class="linenos"> 62</span></a><span class="sd">## API quickstart</span>
+</span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a>
+</span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a><span class="sd">There is a detailed tutorial for the API [here](feder/tutorial.html), but to</span>
+</span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a><span class="sd">get started quickly and check that things are working, you can do this in the</span>
+</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a><span class="sd">shell:</span>
+</span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a>
+</span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="sd">``` shell</span>
+</span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a><span class="sd">pip install /home/mcast/feder/dist/feder-0.1.12-py3-none-any.whl</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="sd">export FEDER_DATA_DIR=/home/mcast/data/feder</span>
+</span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="sd">```</span>
+</span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a>
+</span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a><span class="sd">and then this in Python:</span>
+</span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a>
+</span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="sd">``` python</span>
+</span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a><span class="sd">from datetime import datetime, timedelta</span>
+</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a><span class="sd">from feder import FlightQuery</span>
+</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a><span class="sd">t1 = datetime(2025, 5, 22, 20, 0)</span>
+</span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a><span class="sd">t2 = t1 + timedelta(minutes=30)</span>
+</span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a><span class="sd">flights = list(FlightQuery(t1, t2).with_orig(&#39;KBOS&#39;).run())</span>
+</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a>
+</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a><span class="sd">```</span>
+</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a>
+</span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a><span class="sd">This will return a Python array of 10</span>
+</span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a><span class="sd">[`Trajectory`](doc/api-reference.md#Trajectory) objects of flights crossing</span>
+</span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="sd">the given latitude/longitude bounding box in the one hour window starting at</span>
+</span><span id="L-87"><a href="#L-87"><span class="linenos"> 87</span></a><span class="sd">the given time (all times in UTC).</span>
+</span><span id="L-88"><a href="#L-88"><span class="linenos"> 88</span></a>
+</span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a><span class="sd">The API efficiently supports a range of query options and data return formats.</span>
+</span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="sd">See the [tutorial](feder/tutorial.html) or the API reference documentation</span>
+</span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a><span class="sd">below for details.</span>
+</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a>
+</span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a><span class="sd">## API documentation</span>
+</span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a>
+</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a>
+</span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.query</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_flights</span><span class="p">,</span> <span class="n">FlightQuery</span>  <span class="c1"># noqa</span>
+</span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.available</span><span class="w"> </span><span class="kn">import</span> <span class="n">available_days</span><span class="p">,</span> <span class="n">available_times</span><span class="p">,</span> <span class="n">available_sources</span>  <span class="c1"># noqa</span>
+</span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.common.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataSource</span><span class="p">,</span> <span class="n">Point</span><span class="p">,</span> <span class="n">Trajectory</span>  <span class="c1"># noqa</span>
+</span><span id="L-100"><a href="#L-100"><span class="linenos">100</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.common.db</span><span class="w"> </span><span class="kn">import</span> <span class="n">BoundingBox</span><span class="p">,</span> <span class="n">TemporalQueryType</span><span class="p">,</span> <span class="n">SpatialQueryType</span>  <span class="c1"># noqa</span>
+</span><span id="L-101"><a href="#L-101"><span class="linenos">101</span></a><span class="kn">from</span><span class="w"> </span><span class="nn">.common.version</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_feder_version</span>  <span class="c1"># noqa</span>
+</span><span id="L-102"><a href="#L-102"><span class="linenos">102</span></a>
+</span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a><span class="c1"># The following is needed just to build the documentation.</span>
+</span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a><span class="kn">import</span><span class="w"> </span><span class="nn">feder.tutorial</span>  <span class="c1"># noqa</span>
+</span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a>
+</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a><span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+</span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a>    <span class="s1">&#39;get_flights&#39;</span><span class="p">,</span>
+</span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a>    <span class="s1">&#39;FlightQuery&#39;</span><span class="p">,</span>
+</span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>    <span class="s1">&#39;available_days&#39;</span><span class="p">,</span>
+</span><span id="L-110"><a href="#L-110"><span class="linenos">110</span></a>    <span class="s1">&#39;available_times&#39;</span><span class="p">,</span>
+</span><span id="L-111"><a href="#L-111"><span class="linenos">111</span></a>    <span class="s1">&#39;available_sources&#39;</span><span class="p">,</span>
+</span><span id="L-112"><a href="#L-112"><span class="linenos">112</span></a>    <span class="s1">&#39;DataSource&#39;</span><span class="p">,</span>
+</span><span id="L-113"><a href="#L-113"><span class="linenos">113</span></a>    <span class="s1">&#39;Point&#39;</span><span class="p">,</span>
+</span><span id="L-114"><a href="#L-114"><span class="linenos">114</span></a>    <span class="s1">&#39;Trajectory&#39;</span><span class="p">,</span>
+</span><span id="L-115"><a href="#L-115"><span class="linenos">115</span></a>    <span class="s1">&#39;BoundingBox&#39;</span><span class="p">,</span>
+</span><span id="L-116"><a href="#L-116"><span class="linenos">116</span></a>    <span class="s1">&#39;TemporalQueryType&#39;</span><span class="p">,</span>
+</span><span id="L-117"><a href="#L-117"><span class="linenos">117</span></a>    <span class="s1">&#39;SpatialQueryType&#39;</span><span class="p">,</span>
+</span><span id="L-118"><a href="#L-118"><span class="linenos">118</span></a>    <span class="s1">&#39;get_feder_version&#39;</span><span class="p">,</span>
+</span><span id="L-119"><a href="#L-119"><span class="linenos">119</span></a>    <span class="s1">&#39;tutorial&#39;</span>
+</span><span id="L-120"><a href="#L-120"><span class="linenos">120</span></a><span class="p">]</span>
+</span><span id="L-121"><a href="#L-121"><span class="linenos">121</span></a>
+</span><span id="L-122"><a href="#L-122"><span class="linenos">122</span></a><span class="n">__version__</span> <span class="o">=</span> <span class="s1">&#39;0.1.12&#39;</span>
 </span></pre></div>
 
 
@@ -614,7 +661,7 @@ to a selected data source.</p>
 </span><span id="FlightQuery-142"><a href="#FlightQuery-142"><span class="linenos">142</span></a>        <span class="n">included_dates</span> <span class="o">=</span> <span class="p">[</span>
 </span><span id="FlightQuery-143"><a href="#FlightQuery-143"><span class="linenos">143</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_min_time</span><span class="o">.</span><span class="n">date</span><span class="p">()</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="n">i</span><span class="p">)</span>
 </span><span id="FlightQuery-144"><a href="#FlightQuery-144"><span class="linenos">144</span></a>            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span>
-</span><span id="FlightQuery-145"><a href="#FlightQuery-145"><span class="linenos">145</span></a>                    <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_max_time</span><span class="o">.</span><span class="n">date</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_min_time</span><span class="o">.</span><span class="n">date</span><span class="p">())</span><span class="o">.</span><span class="n">days</span> <span class="o">+</span> <span class="mi">1</span>
+</span><span id="FlightQuery-145"><a href="#FlightQuery-145"><span class="linenos">145</span></a>                    <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_max_time</span><span class="o">.</span><span class="n">date</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_min_time</span><span class="o">.</span><span class="n">date</span><span class="p">())</span><span class="o">.</span><span class="n">days</span> <span class="o">+</span> <span class="mi">2</span>
 </span><span id="FlightQuery-146"><a href="#FlightQuery-146"><span class="linenos">146</span></a>            <span class="p">)</span>
 </span><span id="FlightQuery-147"><a href="#FlightQuery-147"><span class="linenos">147</span></a>        <span class="p">]</span>
 </span><span id="FlightQuery-148"><a href="#FlightQuery-148"><span class="linenos">148</span></a>
@@ -1017,7 +1064,7 @@ during the time period of your query.</p>
 </span><span id="FlightQuery.run-142"><a href="#FlightQuery.run-142"><span class="linenos">142</span></a>        <span class="n">included_dates</span> <span class="o">=</span> <span class="p">[</span>
 </span><span id="FlightQuery.run-143"><a href="#FlightQuery.run-143"><span class="linenos">143</span></a>            <span class="bp">self</span><span class="o">.</span><span class="n">_min_time</span><span class="o">.</span><span class="n">date</span><span class="p">()</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="n">i</span><span class="p">)</span>
 </span><span id="FlightQuery.run-144"><a href="#FlightQuery.run-144"><span class="linenos">144</span></a>            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span>
-</span><span id="FlightQuery.run-145"><a href="#FlightQuery.run-145"><span class="linenos">145</span></a>                    <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_max_time</span><span class="o">.</span><span class="n">date</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_min_time</span><span class="o">.</span><span class="n">date</span><span class="p">())</span><span class="o">.</span><span class="n">days</span> <span class="o">+</span> <span class="mi">1</span>
+</span><span id="FlightQuery.run-145"><a href="#FlightQuery.run-145"><span class="linenos">145</span></a>                    <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_max_time</span><span class="o">.</span><span class="n">date</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_min_time</span><span class="o">.</span><span class="n">date</span><span class="p">())</span><span class="o">.</span><span class="n">days</span> <span class="o">+</span> <span class="mi">2</span>
 </span><span id="FlightQuery.run-146"><a href="#FlightQuery.run-146"><span class="linenos">146</span></a>            <span class="p">)</span>
 </span><span id="FlightQuery.run-147"><a href="#FlightQuery.run-147"><span class="linenos">147</span></a>        <span class="p">]</span>
 </span><span id="FlightQuery.run-148"><a href="#FlightQuery.run-148"><span class="linenos">148</span></a>
