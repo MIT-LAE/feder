@@ -1,6 +1,6 @@
 [project]
 name = "feder"
-version = "0.1.12"
+version = "0.1.13"
 description = "Feder client API"
 readme = "README.md"
 authors = [
