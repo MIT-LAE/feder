@@ -215,21 +215,28 @@ class ContrailsAPISource(DateSource):
             df_or_status = self._retrieve(retrieval_time)
 
             # If the retrieval failed, we try again for the same file in 5
-            # minutes.
+            # minutes. After five failed attempts, we skip the file and wait
+            # for the next one.
             if isinstance(df_or_status, int):
                 if retries >= 5:
                     self.queue.put(SourceErrorCommand(
-                        message='stopping after five retrieval attempts',
-                        stop=True
+                        message='skipping time after five retrieval attempts',
+                        stop=False
                     ))
-                    break
-
-                # retrieve_error returns False if the error is unrecoverable.
-                if not self.retrieve_error(retrieval_time, df_or_status, retry=True):
-                    break
-                if self.wait_for(datetime.now(timezone.utc) + timedelta(minutes=5)):
-                    break
-                retries += 1
+                    retries = 0
+                    retrieval_time += self.DATE_INTERVAL
+                else:
+                    # retrieve_error returns False if the error is
+                    # unrecoverable.
+                    if not self.retrieve_error(retrieval_time, df_or_status, retry=True):
+                        self.queue.put(SourceErrorCommand(
+                            message=f'unrecoverable error retrieving data: {df_or_status}',
+                            stop=True
+                        ))
+                        break
+                    if self.wait_for(datetime.now(timezone.utc) + timedelta(minutes=5)):
+                        break
+                    retries += 1
                 continue
 
             logger.info('processing data for %s...', log_time)
@@ -274,7 +281,6 @@ class ContrailsAPISource(DateSource):
         # receiver process is interrupted by some error condition, either an
         # external signal or a failure to retrieve ADS-B data after repeated
         # retries.
-        self.queue.put(SourceErrorCommand('unknown error', stop=True))
 
     def _retrieve(self, t: datetime) -> pd.DataFrame | int:
         # ISO 8601 (UTC)
