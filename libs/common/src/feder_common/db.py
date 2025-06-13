@@ -271,13 +271,13 @@ class DB:
         string_condition('dest', dest)
 
         # Build SQL and query parameters from parallel lists.
-        sql = (
-            """SELECT source, source_id, transponder_id, orig, dest,
-                      callsign, aircraft_type, points
-                 FROM trajectories WHERE """ +
-            ' AND '.join(p[0] for p in conditions) +
-            f'AND id IN ({",".join("?" for _ in ids)})'
-        )
+        sql = """SELECT source, source_id, transponder_id, orig, dest,
+                        callsign, aircraft_type, points
+                   FROM trajectories WHERE """
+        if len(conditions) > 0:
+            sql += ' AND '.join(p[0] for p in conditions)
+            sql += ' AND '
+        sql += 'id IN (' + ",".join("?" for _ in ids) + ')'
         parameters = tuple(p[1] for p in conditions) + tuple(ids)
 
         cur = self.cursor()

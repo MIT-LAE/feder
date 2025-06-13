@@ -17,6 +17,14 @@ host = "none"
 username = "none"
 password = "none"
 
+[mailjet]
+api_key = "<fill in API key>"
+secret_key = "<fill in secret key>"
+from_email = "state-of-feder@mit.edu"
+from_name = "State of Feder"
+to_email = "state-of-feder@mit.edu"
+to_name = "State of Feder"
+
 [ingester]
 prometheus-port = 19001
 
