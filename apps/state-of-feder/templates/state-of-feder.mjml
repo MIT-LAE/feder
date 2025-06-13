@@ -24,7 +24,7 @@
     <mj-section>
       <mj-column>
         <mj-text font-style="bold" font-size="16px">
-          Smallest file sizes
+          Small files (&lt; 50Mb)
         </mj-text>
         <mj-table>
           <tr style="border-bottom:1px solid #ecedee;text-align:left;padding:15px 0;">

@@ -52,7 +52,7 @@ def text_body(data: EmailData) -> str:
         for f, t in data.available_dates
     ] + [
         '',
-        'Smallest file sizes:'
+        'Small files (< 50Mb):'
     ] + [
         f'{d.isoformat()}  {size / 1024 / 1024:.2f} MB'
         for d, size in data.small_sizes
