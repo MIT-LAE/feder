@@ -66,7 +66,7 @@ get started quickly and check that things are working, you can do this in the
 shell:
 
 ``` shell
-pip install /home/mcast/feder/dist/feder-0.1.15-py3-none-any.whl
+pip install /home/mcast/feder/dist/feder-0.1.16-py3-none-any.whl
 export FEDER_DATA_DIR=/home/mcast/data/feder
 ```
 
@@ -119,4 +119,4 @@ __all__ = [
     'tutorial'
 ]
 
-__version__ = '0.1.15'
+__version__ = '0.1.16'
