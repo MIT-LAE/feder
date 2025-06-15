@@ -45,6 +45,7 @@ post_commit_hooks = []
 files = [
     { filename = "api/pyproject.toml" },
     { filename = "api/src/feder/__init__.py" },
+    { filename = "api/src/feder/tutorial.py" },
     { filename = "libs/common/pyproject.toml" },
     { filename = "libs/common/src/feder_common/__init__.py" },
     { filename = "libs/server/pyproject.toml" },
