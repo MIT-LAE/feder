@@ -126,11 +126,11 @@ The location given here is where the Feder data is stored on Hex.</p>
 <code><a href="../feder.html#available_days">feder.available_days</a></code> function returns a list of pairs of <code>date</code> values
 giving ranges of days for which data is available. As mentioned above, I wrote
 this using an incomplete development database, so there are only a few days of
-data available (here, 2025-05-21 to 2025-05-25).</p>
+data available (here, 2025-03-31 to 2025-04-03).</p>
 
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="n">available_days</span><span class="p">()</span>
-<span class="c1"># [(datetime.date(2025, 5, 21), datetime.date(2025, 5, 25))]</span>
+<span class="c1"># [(datetime.date(2025, 3, 31), datetime.date(2025, 4, 3))]</span>
 </code></pre>
 </div>
 
@@ -138,13 +138,13 @@ data available (here, 2025-05-21 to 2025-05-25).</p>
 to see what ranges of timestamps flight data is available for. The
 <code><a href="../feder.html#available_times">feder.available_times</a></code> function returns a list of (start, end) <code>datetime</code>
 pairs showing the time ranges for which data is available. In this case, the
-file for the day used is incomplete, containing data only from 19:57:20 until
-22:03:12.</p>
+file for the day used is complete, containing data from 00:00:00 until
+23:59:59.</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="n">available_times</span><span class="p">(</span><span class="n">date</span><span class="p">(</span><span class="mi">2025</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">22</span><span class="p">))</span>
-<span class="c1"># [(datetime.datetime(2025, 5, 22, 19, 57, 20),</span>
-<span class="c1">#   datetime.datetime(2025, 5, 22, 22, 3, 12))]</span>
+<pre><span></span><code><span class="n">available_times</span><span class="p">(</span><span class="n">date</span><span class="p">(</span><span class="mi">2025</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="c1"># [(datetime.datetime(2025, 4, 1, 0, 0, tzinfo=datetime.timezone.utc),</span>
+<span class="c1">#   datetime.datetime(2025, 4, 1, 23, 59, 59, tzinfo=datetime.timezone.utc))]</span>
 </code></pre>
 </div>
 
@@ -154,11 +154,11 @@ data sources as we switch over from one source to another. The
 <code><a href="../feder.html#available_sources">feder.available_sources</a></code> function allows you to investigate what data sources
 are in use for a particular day. The return value is a list of
 <code><a href="../feder.html#DataSource">feder.DataSource</a></code> values. In the example here, the data file examined
-contains only data from the Contrails API data source.</p>
+contains only data from the FlightAware data source.</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="n">available_sources</span><span class="p">(</span><span class="n">date</span><span class="p">(</span><span class="mi">2025</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">22</span><span class="p">))</span>
-<span class="c1"># {&lt;DataSource.CONTRAILS_API: 2&gt;}</span>
+<pre><span></span><code><span class="n">available_sources</span><span class="p">(</span><span class="n">date</span><span class="p">(</span><span class="mi">2025</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="c1"># {&lt;DataSource.FLIGHTAWARE: 1&gt;}</span>
 </code></pre>
 </div>
 
@@ -169,7 +169,7 @@ class. All flight queries require a start and end time, so let's make some
 times:</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="n">t1</span> <span class="o">=</span> <span class="n">datetime</span><span class="p">(</span><span class="mi">2025</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">22</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<pre><span></span><code><span class="n">t1</span> <span class="o">=</span> <span class="n">datetime</span><span class="p">(</span><span class="mi">2025</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 <span class="n">t2</span> <span class="o">=</span> <span class="n">t1</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">minutes</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
 </code></pre>
 </div>
@@ -227,12 +227,12 @@ can get it like this:</p>
 </code></pre>
 </div>
 
-<p>The result is a normal list: in this case there were 8 flights matching the
+<p>The result is a normal list: in this case there were 24 flights matching the
 query criteria.</p>
 
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="nb">len</span><span class="p">(</span><span class="n">flights</span><span class="p">)</span>
-<span class="c1"># 8</span>
+<span class="c1"># 24</span>
 </code></pre>
 </div>
 
@@ -260,26 +260,24 @@ relative to the WGS-84 datum), heading and an "on ground" flag.</p>
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="n">flights</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
 <span class="c1"># Trajectory(</span>
-<span class="c1">#   source_id=&#39;ab238587-3419-412e-9fd3-74120f32e65b&#39;,</span>
-<span class="c1">#   source=&lt;DataSource.CONTRAILS_API: 2&gt;,</span>
-<span class="c1">#   transponder_id=&#39;A1ACDB&#39;,</span>
+<span class="c1">#   source_id=&#39;RPA5730-1743310379-airline-1555p&#39;,</span>
+<span class="c1">#   source=&lt;DataSource.FLIGHTAWARE: 1&gt;,</span>
+<span class="c1">#   transponder_id=&#39;A21833&#39;,</span>
 <span class="c1">#   orig=&#39;KBOS&#39;,</span>
-<span class="c1">#   dest=&#39;KCVG&#39;,</span>
-<span class="c1">#   callsign=&#39;RPA5789&#39;,</span>
-<span class="c1">#   aircraft_type=&#39;E75S&#39;,</span>
+<span class="c1">#   dest=&#39;KLGA&#39;,</span>
+<span class="c1">#   callsign=&#39;RPA5730&#39;,</span>
+<span class="c1">#   aircraft_type=&#39;E75L&#39;,</span>
 <span class="c1">#   points=[</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 7, 1), lon=-71.022, lat=42.363, alt=12.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 7, 36), lon=-71.023, lat=42.363, alt=12.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 8, 25), lon=-71.023, lat=42.363, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 9, 44), lon=-71.022, lat=42.36, alt=2850.0, alt_gnss=2850.0, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 10, 2), lon=-71.02, lat=42.359, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 10, 59), lon=-71.016, lat=42.357, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 11, 3), lon=-71.016, lat=42.357, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 11, 55), lon=-71.015, lat=42.354, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 12, 1), lon=-71.015, lat=42.354, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 12, 36), lon=-71.014, lat=42.355, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 14, 29), lon=-71.014, lat=42.355, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-<span class="c1">#     Point(time=datetime.datetime(2025, 5, 22, 20, 14, 57), lon=-71.013, lat=42.356, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 7, 13, tzinfo=datetime.timezone.utc), lon=-71.013, lat=42.37, alt=725.0, alt_gnss=600.0, heading=314.0, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 8, 17, tzinfo=datetime.timezone.utc), lon=-71.063, lat=42.398, alt=3275.0, alt_gnss=3125.0, heading=300.0, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 9, 28, tzinfo=datetime.timezone.utc), lon=-71.152, lat=42.385, alt=6550.0, alt_gnss=6325.0, heading=234.0, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 9, 58, tzinfo=datetime.timezone.utc), lon=-71.192, lat=42.364, alt=7975.0, alt_gnss=7725.0, heading=235.0, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 10, 58, tzinfo=datetime.timezone.utc), lon=-71.276, lat=42.32, alt=10875.0, alt_gnss=10675.0, heading=236.0, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 12, 25, tzinfo=datetime.timezone.utc), lon=-71.44, lat=42.273, alt=13900.0, alt_gnss=13725.0, heading=252.0, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 13, 25, tzinfo=datetime.timezone.utc), lon=-71.555, lat=42.243, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 14, 36, tzinfo=datetime.timezone.utc), lon=-71.696, lat=42.206, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 15, 6, tzinfo=datetime.timezone.utc), lon=-71.753, lat=42.191, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),</span>
+<span class="c1">#     Point(time=datetime.datetime(2025, 4, 1, 18, 16, 6, tzinfo=datetime.timezone.utc), lon=-71.871, lat=42.16, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),</span>
 <span class="c1">#     ...</span>
 <span class="c1">#   ]</span>
 <span class="c1"># )</span>
@@ -294,20 +292,18 @@ data frame, like this:</p>
 
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">flights</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">points</span><span class="p">)</span>
-<span class="c1">#                    time     lon     lat     alt  alt_gnss heading  on_ground</span>
-<span class="c1"># 0   2025-05-22 20:07:01 -71.022  42.363    12.0       NaN    None      False</span>
-<span class="c1"># 1   2025-05-22 20:07:36 -71.023  42.363    12.0       NaN    None      False</span>
-<span class="c1"># 2   2025-05-22 20:08:25 -71.023  42.363     0.0       NaN    None      False</span>
-<span class="c1"># 3   2025-05-22 20:09:44 -71.022  42.360  2850.0    2850.0    None      False</span>
-<span class="c1"># 4   2025-05-22 20:10:02 -71.020  42.359     0.0       NaN    None      False</span>
-<span class="c1"># ..                  ...     ...     ...     ...       ...     ...        ...</span>
-<span class="c1"># 230 2025-05-22 21:58:00 -84.474  39.053  3600.0    3550.0    None      False</span>
-<span class="c1"># 231 2025-05-22 21:58:58 -84.534  39.046  2675.0    2600.0    None      False</span>
-<span class="c1"># 232 2025-05-22 21:59:00 -84.538  39.046  2625.0    2550.0    None      False</span>
-<span class="c1"># 233 2025-05-22 21:59:54 -84.583  39.046  1925.0    1850.0    None      False</span>
-<span class="c1"># 234 2025-05-22 21:59:56 -84.584  39.046  1925.0    1850.0    None      False</span>
-<span class="c1">#</span>
-<span class="c1"># [235 rows x 7 columns]</span>
+<span class="c1">#                         time     lon     lat      alt  alt_gnss  heading  on_ground</span>
+<span class="c1"># 0  2025-04-01 18:07:13+00:00 -71.013  42.370    725.0     600.0    314.0      False</span>
+<span class="c1"># 1  2025-04-01 18:08:17+00:00 -71.063  42.398   3275.0    3125.0    300.0      False</span>
+<span class="c1"># 2  2025-04-01 18:09:28+00:00 -71.152  42.385   6550.0    6325.0    234.0      False</span>
+<span class="c1"># 3  2025-04-01 18:09:58+00:00 -71.192  42.364   7975.0    7725.0    235.0      False</span>
+<span class="c1"># 4  2025-04-01 18:10:58+00:00 -71.276  42.320  10875.0   10675.0    236.0      False</span>
+<span class="c1"># ...</span>
+<span class="c1"># 44 2025-04-01 18:54:48+00:00 -73.972  40.662   2925.0    2850.0     35.0      False</span>
+<span class="c1"># 45 2025-04-01 18:55:14+00:00 -73.957  40.680   2900.0    2825.0     34.0      False</span>
+<span class="c1"># 46 2025-04-01 18:56:25+00:00 -73.906  40.719   2075.0    2025.0     68.0      False</span>
+<span class="c1"># 47 2025-04-01 18:57:29+00:00 -73.849  40.730   1150.0    1100.0     70.0      False</span>
+<span class="c1"># 48 2025-04-01 18:58:33+00:00 -73.839  40.762    300.0     275.0    316.0      False</span>
 </code></pre>
 </div>
 
@@ -323,14 +319,30 @@ destination and total flight time:</p>
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="k">for</span> <span class="n">flight</span> <span class="ow">in</span> <span class="n">query</span><span class="o">.</span><span class="n">run</span><span class="p">():</span>
     <span class="nb">print</span><span class="p">(</span><span class="n">flight</span><span class="o">.</span><span class="n">orig</span><span class="p">,</span> <span class="n">flight</span><span class="o">.</span><span class="n">dest</span><span class="p">,</span> <span class="n">flight</span><span class="o">.</span><span class="n">points</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">time</span> <span class="o">-</span> <span class="n">flight</span><span class="o">.</span><span class="n">points</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">time</span><span class="p">)</span>
-<span class="c1"># KBOS KCVG 1:52:55</span>
-<span class="c1"># KBOS KTEB 1:01:54</span>
-<span class="c1"># KBOS KMSY 1:35:26</span>
-<span class="c1"># KBOS KLGA 1:20:31</span>
-<span class="c1"># KBOS KDFW 1:43:00</span>
-<span class="c1"># KBOS KBWI 1:40:28</span>
-<span class="c1"># KBOS KDEN 1:41:20</span>
-<span class="c1"># KBOS KLAS 1:36:05</span>
+<span class="c1"># KBOS KLGA 0:51:20</span>
+<span class="c1"># KBOS KTEB 0:51:16</span>
+<span class="c1"># KBOS KEWR 0:54:36</span>
+<span class="c1"># KBOS KLGA 0:45:18</span>
+<span class="c1"># KBOS KJFK 0:47:12</span>
+<span class="c1"># KBOS CYTZ 1:40:12</span>
+<span class="c1"># KBOS KROC 1:00:57</span>
+<span class="c1"># KBOS KDCA 1:27:42</span>
+<span class="c1"># KBOS CYTZ 1:40:12</span>
+<span class="c1"># KBOS KMSS 1:12:15</span>
+<span class="c1"># KBOS KDCA 1:18:25</span>
+<span class="c1"># KBOS KMSS 1:12:15</span>
+<span class="c1"># KBOS KJFK 0:47:12</span>
+<span class="c1"># KBOS KDCA 1:27:42</span>
+<span class="c1"># KBOS KACK 0:41:17</span>
+<span class="c1"># KBOS KACK 0:41:17</span>
+<span class="c1"># KBOS KTEB 0:51:16</span>
+<span class="c1"># KBOS KEWR 0:54:36</span>
+<span class="c1"># KBOS KLGA 0:45:18</span>
+<span class="c1"># KBOS KLGA 0:51:20</span>
+<span class="c1"># KBOS KROC 1:00:57</span>
+<span class="c1"># KBOS KDCA 1:18:25</span>
+<span class="c1"># KBOS KIND 2:11:43</span>
+<span class="c1"># KBOS KIND 2:11:43</span>
 </code></pre>
 </div>
 </div>
@@ -404,24 +416,24 @@ destination and total flight time:</p>
 </span><span id="L-63"><a href="#L-63"><span class="linenos"> 63</span></a><span class="sd">`feder.available_days` function returns a list of pairs of `date` values</span>
 </span><span id="L-64"><a href="#L-64"><span class="linenos"> 64</span></a><span class="sd">giving ranges of days for which data is available. As mentioned above, I wrote</span>
 </span><span id="L-65"><a href="#L-65"><span class="linenos"> 65</span></a><span class="sd">this using an incomplete development database, so there are only a few days of</span>
-</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a><span class="sd">data available (here, 2025-05-21 to 2025-05-25).</span>
+</span><span id="L-66"><a href="#L-66"><span class="linenos"> 66</span></a><span class="sd">data available (here, 2025-03-31 to 2025-04-03).</span>
 </span><span id="L-67"><a href="#L-67"><span class="linenos"> 67</span></a>
 </span><span id="L-68"><a href="#L-68"><span class="linenos"> 68</span></a><span class="sd">``` python</span>
 </span><span id="L-69"><a href="#L-69"><span class="linenos"> 69</span></a><span class="sd">available_days()</span>
-</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="sd"># [(datetime.date(2025, 5, 21), datetime.date(2025, 5, 25))]</span>
+</span><span id="L-70"><a href="#L-70"><span class="linenos"> 70</span></a><span class="sd"># [(datetime.date(2025, 3, 31), datetime.date(2025, 4, 3))]</span>
 </span><span id="L-71"><a href="#L-71"><span class="linenos"> 71</span></a><span class="sd">```</span>
 </span><span id="L-72"><a href="#L-72"><span class="linenos"> 72</span></a>
 </span><span id="L-73"><a href="#L-73"><span class="linenos"> 73</span></a><span class="sd">Once we know what days data is available for, we can check within a given day</span>
 </span><span id="L-74"><a href="#L-74"><span class="linenos"> 74</span></a><span class="sd">to see what ranges of timestamps flight data is available for. The</span>
 </span><span id="L-75"><a href="#L-75"><span class="linenos"> 75</span></a><span class="sd">`feder.available_times` function returns a list of (start, end) `datetime`</span>
 </span><span id="L-76"><a href="#L-76"><span class="linenos"> 76</span></a><span class="sd">pairs showing the time ranges for which data is available. In this case, the</span>
-</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a><span class="sd">file for the day used is incomplete, containing data only from 19:57:20 until</span>
-</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a><span class="sd">22:03:12.</span>
+</span><span id="L-77"><a href="#L-77"><span class="linenos"> 77</span></a><span class="sd">file for the day used is complete, containing data from 00:00:00 until</span>
+</span><span id="L-78"><a href="#L-78"><span class="linenos"> 78</span></a><span class="sd">23:59:59.</span>
 </span><span id="L-79"><a href="#L-79"><span class="linenos"> 79</span></a>
 </span><span id="L-80"><a href="#L-80"><span class="linenos"> 80</span></a><span class="sd">``` python</span>
-</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a><span class="sd">available_times(date(2025, 5, 22))</span>
-</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a><span class="sd"># [(datetime.datetime(2025, 5, 22, 19, 57, 20),</span>
-</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a><span class="sd">#   datetime.datetime(2025, 5, 22, 22, 3, 12))]</span>
+</span><span id="L-81"><a href="#L-81"><span class="linenos"> 81</span></a><span class="sd">available_times(date(2025, 4, 1))</span>
+</span><span id="L-82"><a href="#L-82"><span class="linenos"> 82</span></a><span class="sd"># [(datetime.datetime(2025, 4, 1, 0, 0, tzinfo=datetime.timezone.utc),</span>
+</span><span id="L-83"><a href="#L-83"><span class="linenos"> 83</span></a><span class="sd">#   datetime.datetime(2025, 4, 1, 23, 59, 59, tzinfo=datetime.timezone.utc))]</span>
 </span><span id="L-84"><a href="#L-84"><span class="linenos"> 84</span></a><span class="sd">```</span>
 </span><span id="L-85"><a href="#L-85"><span class="linenos"> 85</span></a>
 </span><span id="L-86"><a href="#L-86"><span class="linenos"> 86</span></a><span class="sd">During normal operations, the Feder backend servers collect data from a single</span>
@@ -430,11 +442,11 @@ destination and total flight time:</p>
 </span><span id="L-89"><a href="#L-89"><span class="linenos"> 89</span></a><span class="sd">`feder.available_sources` function allows you to investigate what data sources</span>
 </span><span id="L-90"><a href="#L-90"><span class="linenos"> 90</span></a><span class="sd">are in use for a particular day. The return value is a list of</span>
 </span><span id="L-91"><a href="#L-91"><span class="linenos"> 91</span></a><span class="sd">`feder.DataSource` values. In the example here, the data file examined</span>
-</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a><span class="sd">contains only data from the Contrails API data source.</span>
+</span><span id="L-92"><a href="#L-92"><span class="linenos"> 92</span></a><span class="sd">contains only data from the FlightAware data source.</span>
 </span><span id="L-93"><a href="#L-93"><span class="linenos"> 93</span></a>
 </span><span id="L-94"><a href="#L-94"><span class="linenos"> 94</span></a><span class="sd">``` python</span>
-</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="sd">available_sources(date(2025, 5, 22))</span>
-</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a><span class="sd"># {&lt;DataSource.CONTRAILS_API: 2&gt;}</span>
+</span><span id="L-95"><a href="#L-95"><span class="linenos"> 95</span></a><span class="sd">available_sources(date(2025, 4, 1))</span>
+</span><span id="L-96"><a href="#L-96"><span class="linenos"> 96</span></a><span class="sd"># {&lt;DataSource.FLIGHTAWARE: 1&gt;}</span>
 </span><span id="L-97"><a href="#L-97"><span class="linenos"> 97</span></a><span class="sd">```</span>
 </span><span id="L-98"><a href="#L-98"><span class="linenos"> 98</span></a>
 </span><span id="L-99"><a href="#L-99"><span class="linenos"> 99</span></a><span class="sd">## Constructing flight queries</span>
@@ -444,7 +456,7 @@ destination and total flight time:</p>
 </span><span id="L-103"><a href="#L-103"><span class="linenos">103</span></a><span class="sd">times:</span>
 </span><span id="L-104"><a href="#L-104"><span class="linenos">104</span></a>
 </span><span id="L-105"><a href="#L-105"><span class="linenos">105</span></a><span class="sd">``` python</span>
-</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a><span class="sd">t1 = datetime(2025, 5, 22, 20, 0)</span>
+</span><span id="L-106"><a href="#L-106"><span class="linenos">106</span></a><span class="sd">t1 = datetime(2025, 4, 1, 20, 0)</span>
 </span><span id="L-107"><a href="#L-107"><span class="linenos">107</span></a><span class="sd">t2 = t1 + timedelta(minutes=30)</span>
 </span><span id="L-108"><a href="#L-108"><span class="linenos">108</span></a><span class="sd">```</span>
 </span><span id="L-109"><a href="#L-109"><span class="linenos">109</span></a>
@@ -496,12 +508,12 @@ destination and total flight time:</p>
 </span><span id="L-155"><a href="#L-155"><span class="linenos">155</span></a><span class="sd">flights = list(query.run())</span>
 </span><span id="L-156"><a href="#L-156"><span class="linenos">156</span></a><span class="sd">```</span>
 </span><span id="L-157"><a href="#L-157"><span class="linenos">157</span></a>
-</span><span id="L-158"><a href="#L-158"><span class="linenos">158</span></a><span class="sd">The result is a normal list: in this case there were 8 flights matching the</span>
+</span><span id="L-158"><a href="#L-158"><span class="linenos">158</span></a><span class="sd">The result is a normal list: in this case there were 24 flights matching the</span>
 </span><span id="L-159"><a href="#L-159"><span class="linenos">159</span></a><span class="sd">query criteria.</span>
 </span><span id="L-160"><a href="#L-160"><span class="linenos">160</span></a>
 </span><span id="L-161"><a href="#L-161"><span class="linenos">161</span></a><span class="sd">``` python</span>
 </span><span id="L-162"><a href="#L-162"><span class="linenos">162</span></a><span class="sd">len(flights)</span>
-</span><span id="L-163"><a href="#L-163"><span class="linenos">163</span></a><span class="sd"># 8</span>
+</span><span id="L-163"><a href="#L-163"><span class="linenos">163</span></a><span class="sd"># 24</span>
 </span><span id="L-164"><a href="#L-164"><span class="linenos">164</span></a><span class="sd">```</span>
 </span><span id="L-165"><a href="#L-165"><span class="linenos">165</span></a>
 </span><span id="L-166"><a href="#L-166"><span class="linenos">166</span></a><span class="sd">## Flight data</span>
@@ -526,78 +538,90 @@ destination and total flight time:</p>
 </span><span id="L-185"><a href="#L-185"><span class="linenos">185</span></a><span class="sd">``` python</span>
 </span><span id="L-186"><a href="#L-186"><span class="linenos">186</span></a><span class="sd">flights[0]</span>
 </span><span id="L-187"><a href="#L-187"><span class="linenos">187</span></a><span class="sd"># Trajectory(</span>
-</span><span id="L-188"><a href="#L-188"><span class="linenos">188</span></a><span class="sd">#   source_id=&#39;ab238587-3419-412e-9fd3-74120f32e65b&#39;,</span>
-</span><span id="L-189"><a href="#L-189"><span class="linenos">189</span></a><span class="sd">#   source=&lt;DataSource.CONTRAILS_API: 2&gt;,</span>
-</span><span id="L-190"><a href="#L-190"><span class="linenos">190</span></a><span class="sd">#   transponder_id=&#39;A1ACDB&#39;,</span>
+</span><span id="L-188"><a href="#L-188"><span class="linenos">188</span></a><span class="sd">#   source_id=&#39;RPA5730-1743310379-airline-1555p&#39;,</span>
+</span><span id="L-189"><a href="#L-189"><span class="linenos">189</span></a><span class="sd">#   source=&lt;DataSource.FLIGHTAWARE: 1&gt;,</span>
+</span><span id="L-190"><a href="#L-190"><span class="linenos">190</span></a><span class="sd">#   transponder_id=&#39;A21833&#39;,</span>
 </span><span id="L-191"><a href="#L-191"><span class="linenos">191</span></a><span class="sd">#   orig=&#39;KBOS&#39;,</span>
-</span><span id="L-192"><a href="#L-192"><span class="linenos">192</span></a><span class="sd">#   dest=&#39;KCVG&#39;,</span>
-</span><span id="L-193"><a href="#L-193"><span class="linenos">193</span></a><span class="sd">#   callsign=&#39;RPA5789&#39;,</span>
-</span><span id="L-194"><a href="#L-194"><span class="linenos">194</span></a><span class="sd">#   aircraft_type=&#39;E75S&#39;,</span>
+</span><span id="L-192"><a href="#L-192"><span class="linenos">192</span></a><span class="sd">#   dest=&#39;KLGA&#39;,</span>
+</span><span id="L-193"><a href="#L-193"><span class="linenos">193</span></a><span class="sd">#   callsign=&#39;RPA5730&#39;,</span>
+</span><span id="L-194"><a href="#L-194"><span class="linenos">194</span></a><span class="sd">#   aircraft_type=&#39;E75L&#39;,</span>
 </span><span id="L-195"><a href="#L-195"><span class="linenos">195</span></a><span class="sd">#   points=[</span>
-</span><span id="L-196"><a href="#L-196"><span class="linenos">196</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 7, 1), lon=-71.022, lat=42.363, alt=12.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-197"><a href="#L-197"><span class="linenos">197</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 7, 36), lon=-71.023, lat=42.363, alt=12.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-198"><a href="#L-198"><span class="linenos">198</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 8, 25), lon=-71.023, lat=42.363, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-199"><a href="#L-199"><span class="linenos">199</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 9, 44), lon=-71.022, lat=42.36, alt=2850.0, alt_gnss=2850.0, heading=None, on_ground=False),</span>
-</span><span id="L-200"><a href="#L-200"><span class="linenos">200</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 10, 2), lon=-71.02, lat=42.359, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-201"><a href="#L-201"><span class="linenos">201</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 10, 59), lon=-71.016, lat=42.357, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-202"><a href="#L-202"><span class="linenos">202</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 11, 3), lon=-71.016, lat=42.357, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-203"><a href="#L-203"><span class="linenos">203</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 11, 55), lon=-71.015, lat=42.354, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-204"><a href="#L-204"><span class="linenos">204</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 12, 1), lon=-71.015, lat=42.354, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-205"><a href="#L-205"><span class="linenos">205</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 12, 36), lon=-71.014, lat=42.355, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-206"><a href="#L-206"><span class="linenos">206</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 14, 29), lon=-71.014, lat=42.355, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-207"><a href="#L-207"><span class="linenos">207</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 5, 22, 20, 14, 57), lon=-71.013, lat=42.356, alt=0.0, alt_gnss=None, heading=None, on_ground=False),</span>
-</span><span id="L-208"><a href="#L-208"><span class="linenos">208</span></a><span class="sd">#     ...</span>
-</span><span id="L-209"><a href="#L-209"><span class="linenos">209</span></a><span class="sd">#   ]</span>
-</span><span id="L-210"><a href="#L-210"><span class="linenos">210</span></a><span class="sd"># )</span>
-</span><span id="L-211"><a href="#L-211"><span class="linenos">211</span></a><span class="sd">```</span>
+</span><span id="L-196"><a href="#L-196"><span class="linenos">196</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 7, 13, tzinfo=datetime.timezone.utc), lon=-71.013, lat=42.37, alt=725.0, alt_gnss=600.0, heading=314.0, on_ground=False),</span>
+</span><span id="L-197"><a href="#L-197"><span class="linenos">197</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 8, 17, tzinfo=datetime.timezone.utc), lon=-71.063, lat=42.398, alt=3275.0, alt_gnss=3125.0, heading=300.0, on_ground=False),</span>
+</span><span id="L-198"><a href="#L-198"><span class="linenos">198</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 9, 28, tzinfo=datetime.timezone.utc), lon=-71.152, lat=42.385, alt=6550.0, alt_gnss=6325.0, heading=234.0, on_ground=False),</span>
+</span><span id="L-199"><a href="#L-199"><span class="linenos">199</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 9, 58, tzinfo=datetime.timezone.utc), lon=-71.192, lat=42.364, alt=7975.0, alt_gnss=7725.0, heading=235.0, on_ground=False),</span>
+</span><span id="L-200"><a href="#L-200"><span class="linenos">200</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 10, 58, tzinfo=datetime.timezone.utc), lon=-71.276, lat=42.32, alt=10875.0, alt_gnss=10675.0, heading=236.0, on_ground=False),</span>
+</span><span id="L-201"><a href="#L-201"><span class="linenos">201</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 12, 25, tzinfo=datetime.timezone.utc), lon=-71.44, lat=42.273, alt=13900.0, alt_gnss=13725.0, heading=252.0, on_ground=False),</span>
+</span><span id="L-202"><a href="#L-202"><span class="linenos">202</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 13, 25, tzinfo=datetime.timezone.utc), lon=-71.555, lat=42.243, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),</span>
+</span><span id="L-203"><a href="#L-203"><span class="linenos">203</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 14, 36, tzinfo=datetime.timezone.utc), lon=-71.696, lat=42.206, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),</span>
+</span><span id="L-204"><a href="#L-204"><span class="linenos">204</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 15, 6, tzinfo=datetime.timezone.utc), lon=-71.753, lat=42.191, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),</span>
+</span><span id="L-205"><a href="#L-205"><span class="linenos">205</span></a><span class="sd">#     Point(time=datetime.datetime(2025, 4, 1, 18, 16, 6, tzinfo=datetime.timezone.utc), lon=-71.871, lat=42.16, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),</span>
+</span><span id="L-206"><a href="#L-206"><span class="linenos">206</span></a><span class="sd">#     ...</span>
+</span><span id="L-207"><a href="#L-207"><span class="linenos">207</span></a><span class="sd">#   ]</span>
+</span><span id="L-208"><a href="#L-208"><span class="linenos">208</span></a><span class="sd"># )</span>
+</span><span id="L-209"><a href="#L-209"><span class="linenos">209</span></a><span class="sd">```</span>
+</span><span id="L-210"><a href="#L-210"><span class="linenos">210</span></a>
+</span><span id="L-211"><a href="#L-211"><span class="linenos">211</span></a><span class="sd">## Where are my dataframes, you barbarian?</span>
 </span><span id="L-212"><a href="#L-212"><span class="linenos">212</span></a>
-</span><span id="L-213"><a href="#L-213"><span class="linenos">213</span></a><span class="sd">## Where are my dataframes, you barbarian?</span>
-</span><span id="L-214"><a href="#L-214"><span class="linenos">214</span></a>
-</span><span id="L-215"><a href="#L-215"><span class="linenos">215</span></a><span class="sd">If you prefer to have your trajectory data as a Pandas data frame, you can</span>
-</span><span id="L-216"><a href="#L-216"><span class="linenos">216</span></a><span class="sd">easily convert the list of `feder.Point` values in the trajectory data into a</span>
-</span><span id="L-217"><a href="#L-217"><span class="linenos">217</span></a><span class="sd">data frame, like this:</span>
-</span><span id="L-218"><a href="#L-218"><span class="linenos">218</span></a>
-</span><span id="L-219"><a href="#L-219"><span class="linenos">219</span></a><span class="sd">``` python</span>
-</span><span id="L-220"><a href="#L-220"><span class="linenos">220</span></a><span class="sd">pd.DataFrame(flights[0].points)</span>
-</span><span id="L-221"><a href="#L-221"><span class="linenos">221</span></a><span class="sd">#                    time     lon     lat     alt  alt_gnss heading  on_ground</span>
-</span><span id="L-222"><a href="#L-222"><span class="linenos">222</span></a><span class="sd"># 0   2025-05-22 20:07:01 -71.022  42.363    12.0       NaN    None      False</span>
-</span><span id="L-223"><a href="#L-223"><span class="linenos">223</span></a><span class="sd"># 1   2025-05-22 20:07:36 -71.023  42.363    12.0       NaN    None      False</span>
-</span><span id="L-224"><a href="#L-224"><span class="linenos">224</span></a><span class="sd"># 2   2025-05-22 20:08:25 -71.023  42.363     0.0       NaN    None      False</span>
-</span><span id="L-225"><a href="#L-225"><span class="linenos">225</span></a><span class="sd"># 3   2025-05-22 20:09:44 -71.022  42.360  2850.0    2850.0    None      False</span>
-</span><span id="L-226"><a href="#L-226"><span class="linenos">226</span></a><span class="sd"># 4   2025-05-22 20:10:02 -71.020  42.359     0.0       NaN    None      False</span>
-</span><span id="L-227"><a href="#L-227"><span class="linenos">227</span></a><span class="sd"># ..                  ...     ...     ...     ...       ...     ...        ...</span>
-</span><span id="L-228"><a href="#L-228"><span class="linenos">228</span></a><span class="sd"># 230 2025-05-22 21:58:00 -84.474  39.053  3600.0    3550.0    None      False</span>
-</span><span id="L-229"><a href="#L-229"><span class="linenos">229</span></a><span class="sd"># 231 2025-05-22 21:58:58 -84.534  39.046  2675.0    2600.0    None      False</span>
-</span><span id="L-230"><a href="#L-230"><span class="linenos">230</span></a><span class="sd"># 232 2025-05-22 21:59:00 -84.538  39.046  2625.0    2550.0    None      False</span>
-</span><span id="L-231"><a href="#L-231"><span class="linenos">231</span></a><span class="sd"># 233 2025-05-22 21:59:54 -84.583  39.046  1925.0    1850.0    None      False</span>
-</span><span id="L-232"><a href="#L-232"><span class="linenos">232</span></a><span class="sd"># 234 2025-05-22 21:59:56 -84.584  39.046  1925.0    1850.0    None      False</span>
-</span><span id="L-233"><a href="#L-233"><span class="linenos">233</span></a><span class="sd">#</span>
-</span><span id="L-234"><a href="#L-234"><span class="linenos">234</span></a><span class="sd"># [235 rows x 7 columns]</span>
-</span><span id="L-235"><a href="#L-235"><span class="linenos">235</span></a><span class="sd">```</span>
-</span><span id="L-236"><a href="#L-236"><span class="linenos">236</span></a>
-</span><span id="L-237"><a href="#L-237"><span class="linenos">237</span></a><span class="sd">## Iterating over trajectories</span>
+</span><span id="L-213"><a href="#L-213"><span class="linenos">213</span></a><span class="sd">If you prefer to have your trajectory data as a Pandas data frame, you can</span>
+</span><span id="L-214"><a href="#L-214"><span class="linenos">214</span></a><span class="sd">easily convert the list of `feder.Point` values in the trajectory data into a</span>
+</span><span id="L-215"><a href="#L-215"><span class="linenos">215</span></a><span class="sd">data frame, like this:</span>
+</span><span id="L-216"><a href="#L-216"><span class="linenos">216</span></a>
+</span><span id="L-217"><a href="#L-217"><span class="linenos">217</span></a><span class="sd">``` python</span>
+</span><span id="L-218"><a href="#L-218"><span class="linenos">218</span></a><span class="sd">pd.DataFrame(flights[0].points)</span>
+</span><span id="L-219"><a href="#L-219"><span class="linenos">219</span></a><span class="sd">#                         time     lon     lat      alt  alt_gnss  heading  on_ground</span>
+</span><span id="L-220"><a href="#L-220"><span class="linenos">220</span></a><span class="sd"># 0  2025-04-01 18:07:13+00:00 -71.013  42.370    725.0     600.0    314.0      False</span>
+</span><span id="L-221"><a href="#L-221"><span class="linenos">221</span></a><span class="sd"># 1  2025-04-01 18:08:17+00:00 -71.063  42.398   3275.0    3125.0    300.0      False</span>
+</span><span id="L-222"><a href="#L-222"><span class="linenos">222</span></a><span class="sd"># 2  2025-04-01 18:09:28+00:00 -71.152  42.385   6550.0    6325.0    234.0      False</span>
+</span><span id="L-223"><a href="#L-223"><span class="linenos">223</span></a><span class="sd"># 3  2025-04-01 18:09:58+00:00 -71.192  42.364   7975.0    7725.0    235.0      False</span>
+</span><span id="L-224"><a href="#L-224"><span class="linenos">224</span></a><span class="sd"># 4  2025-04-01 18:10:58+00:00 -71.276  42.320  10875.0   10675.0    236.0      False</span>
+</span><span id="L-225"><a href="#L-225"><span class="linenos">225</span></a><span class="sd"># ...</span>
+</span><span id="L-226"><a href="#L-226"><span class="linenos">226</span></a><span class="sd"># 44 2025-04-01 18:54:48+00:00 -73.972  40.662   2925.0    2850.0     35.0      False</span>
+</span><span id="L-227"><a href="#L-227"><span class="linenos">227</span></a><span class="sd"># 45 2025-04-01 18:55:14+00:00 -73.957  40.680   2900.0    2825.0     34.0      False</span>
+</span><span id="L-228"><a href="#L-228"><span class="linenos">228</span></a><span class="sd"># 46 2025-04-01 18:56:25+00:00 -73.906  40.719   2075.0    2025.0     68.0      False</span>
+</span><span id="L-229"><a href="#L-229"><span class="linenos">229</span></a><span class="sd"># 47 2025-04-01 18:57:29+00:00 -73.849  40.730   1150.0    1100.0     70.0      False</span>
+</span><span id="L-230"><a href="#L-230"><span class="linenos">230</span></a><span class="sd"># 48 2025-04-01 18:58:33+00:00 -73.839  40.762    300.0     275.0    316.0      False</span>
+</span><span id="L-231"><a href="#L-231"><span class="linenos">231</span></a><span class="sd">```</span>
+</span><span id="L-232"><a href="#L-232"><span class="linenos">232</span></a>
+</span><span id="L-233"><a href="#L-233"><span class="linenos">233</span></a><span class="sd">## Iterating over trajectories</span>
+</span><span id="L-234"><a href="#L-234"><span class="linenos">234</span></a>
+</span><span id="L-235"><a href="#L-235"><span class="linenos">235</span></a><span class="sd">Because the `feder.FlightQuery.run` method is a generator method, you can use</span>
+</span><span id="L-236"><a href="#L-236"><span class="linenos">236</span></a><span class="sd">it to iterate over query results one by one. This can be more efficient for</span>
+</span><span id="L-237"><a href="#L-237"><span class="linenos">237</span></a><span class="sd">large query result sets than asking for the whole list of results at once.</span>
 </span><span id="L-238"><a href="#L-238"><span class="linenos">238</span></a>
-</span><span id="L-239"><a href="#L-239"><span class="linenos">239</span></a><span class="sd">Because the `feder.FlightQuery.run` method is a generator method, you can use</span>
-</span><span id="L-240"><a href="#L-240"><span class="linenos">240</span></a><span class="sd">it to iterate over query results one by one. This can be more efficient for</span>
-</span><span id="L-241"><a href="#L-241"><span class="linenos">241</span></a><span class="sd">large query result sets than asking for the whole list of results at once.</span>
-</span><span id="L-242"><a href="#L-242"><span class="linenos">242</span></a>
-</span><span id="L-243"><a href="#L-243"><span class="linenos">243</span></a><span class="sd">Here, we iterate over the results from the query above, displaying origin and</span>
-</span><span id="L-244"><a href="#L-244"><span class="linenos">244</span></a><span class="sd">destination and total flight time:</span>
-</span><span id="L-245"><a href="#L-245"><span class="linenos">245</span></a>
-</span><span id="L-246"><a href="#L-246"><span class="linenos">246</span></a><span class="sd">``` python</span>
-</span><span id="L-247"><a href="#L-247"><span class="linenos">247</span></a><span class="sd">for flight in query.run():</span>
-</span><span id="L-248"><a href="#L-248"><span class="linenos">248</span></a><span class="sd">    print(flight.orig, flight.dest, flight.points[-1].time - flight.points[0].time)</span>
-</span><span id="L-249"><a href="#L-249"><span class="linenos">249</span></a><span class="sd"># KBOS KCVG 1:52:55</span>
-</span><span id="L-250"><a href="#L-250"><span class="linenos">250</span></a><span class="sd"># KBOS KTEB 1:01:54</span>
-</span><span id="L-251"><a href="#L-251"><span class="linenos">251</span></a><span class="sd"># KBOS KMSY 1:35:26</span>
-</span><span id="L-252"><a href="#L-252"><span class="linenos">252</span></a><span class="sd"># KBOS KLGA 1:20:31</span>
-</span><span id="L-253"><a href="#L-253"><span class="linenos">253</span></a><span class="sd"># KBOS KDFW 1:43:00</span>
-</span><span id="L-254"><a href="#L-254"><span class="linenos">254</span></a><span class="sd"># KBOS KBWI 1:40:28</span>
-</span><span id="L-255"><a href="#L-255"><span class="linenos">255</span></a><span class="sd"># KBOS KDEN 1:41:20</span>
-</span><span id="L-256"><a href="#L-256"><span class="linenos">256</span></a><span class="sd"># KBOS KLAS 1:36:05</span>
-</span><span id="L-257"><a href="#L-257"><span class="linenos">257</span></a><span class="sd">```</span>
-</span><span id="L-258"><a href="#L-258"><span class="linenos">258</span></a>
-</span><span id="L-259"><a href="#L-259"><span class="linenos">259</span></a><span class="sd">&quot;&quot;&quot;</span>
+</span><span id="L-239"><a href="#L-239"><span class="linenos">239</span></a><span class="sd">Here, we iterate over the results from the query above, displaying origin and</span>
+</span><span id="L-240"><a href="#L-240"><span class="linenos">240</span></a><span class="sd">destination and total flight time:</span>
+</span><span id="L-241"><a href="#L-241"><span class="linenos">241</span></a>
+</span><span id="L-242"><a href="#L-242"><span class="linenos">242</span></a><span class="sd">``` python</span>
+</span><span id="L-243"><a href="#L-243"><span class="linenos">243</span></a><span class="sd">for flight in query.run():</span>
+</span><span id="L-244"><a href="#L-244"><span class="linenos">244</span></a><span class="sd">    print(flight.orig, flight.dest, flight.points[-1].time - flight.points[0].time)</span>
+</span><span id="L-245"><a href="#L-245"><span class="linenos">245</span></a><span class="sd"># KBOS KLGA 0:51:20</span>
+</span><span id="L-246"><a href="#L-246"><span class="linenos">246</span></a><span class="sd"># KBOS KTEB 0:51:16</span>
+</span><span id="L-247"><a href="#L-247"><span class="linenos">247</span></a><span class="sd"># KBOS KEWR 0:54:36</span>
+</span><span id="L-248"><a href="#L-248"><span class="linenos">248</span></a><span class="sd"># KBOS KLGA 0:45:18</span>
+</span><span id="L-249"><a href="#L-249"><span class="linenos">249</span></a><span class="sd"># KBOS KJFK 0:47:12</span>
+</span><span id="L-250"><a href="#L-250"><span class="linenos">250</span></a><span class="sd"># KBOS CYTZ 1:40:12</span>
+</span><span id="L-251"><a href="#L-251"><span class="linenos">251</span></a><span class="sd"># KBOS KROC 1:00:57</span>
+</span><span id="L-252"><a href="#L-252"><span class="linenos">252</span></a><span class="sd"># KBOS KDCA 1:27:42</span>
+</span><span id="L-253"><a href="#L-253"><span class="linenos">253</span></a><span class="sd"># KBOS CYTZ 1:40:12</span>
+</span><span id="L-254"><a href="#L-254"><span class="linenos">254</span></a><span class="sd"># KBOS KMSS 1:12:15</span>
+</span><span id="L-255"><a href="#L-255"><span class="linenos">255</span></a><span class="sd"># KBOS KDCA 1:18:25</span>
+</span><span id="L-256"><a href="#L-256"><span class="linenos">256</span></a><span class="sd"># KBOS KMSS 1:12:15</span>
+</span><span id="L-257"><a href="#L-257"><span class="linenos">257</span></a><span class="sd"># KBOS KJFK 0:47:12</span>
+</span><span id="L-258"><a href="#L-258"><span class="linenos">258</span></a><span class="sd"># KBOS KDCA 1:27:42</span>
+</span><span id="L-259"><a href="#L-259"><span class="linenos">259</span></a><span class="sd"># KBOS KACK 0:41:17</span>
+</span><span id="L-260"><a href="#L-260"><span class="linenos">260</span></a><span class="sd"># KBOS KACK 0:41:17</span>
+</span><span id="L-261"><a href="#L-261"><span class="linenos">261</span></a><span class="sd"># KBOS KTEB 0:51:16</span>
+</span><span id="L-262"><a href="#L-262"><span class="linenos">262</span></a><span class="sd"># KBOS KEWR 0:54:36</span>
+</span><span id="L-263"><a href="#L-263"><span class="linenos">263</span></a><span class="sd"># KBOS KLGA 0:45:18</span>
+</span><span id="L-264"><a href="#L-264"><span class="linenos">264</span></a><span class="sd"># KBOS KLGA 0:51:20</span>
+</span><span id="L-265"><a href="#L-265"><span class="linenos">265</span></a><span class="sd"># KBOS KROC 1:00:57</span>
+</span><span id="L-266"><a href="#L-266"><span class="linenos">266</span></a><span class="sd"># KBOS KDCA 1:18:25</span>
+</span><span id="L-267"><a href="#L-267"><span class="linenos">267</span></a><span class="sd"># KBOS KIND 2:11:43</span>
+</span><span id="L-268"><a href="#L-268"><span class="linenos">268</span></a><span class="sd"># KBOS KIND 2:11:43</span>
+</span><span id="L-269"><a href="#L-269"><span class="linenos">269</span></a><span class="sd">```</span>
+</span><span id="L-270"><a href="#L-270"><span class="linenos">270</span></a>
+</span><span id="L-271"><a href="#L-271"><span class="linenos">271</span></a><span class="sd">&quot;&quot;&quot;</span>
 </span></pre></div>
 
 

@@ -63,24 +63,24 @@ We can see what days flight data is available for in Feder. The
 `feder.available_days` function returns a list of pairs of `date` values
 giving ranges of days for which data is available. As mentioned above, I wrote
 this using an incomplete development database, so there are only a few days of
-data available (here, 2025-05-21 to 2025-05-25).
+data available (here, 2025-03-31 to 2025-04-03).
 
 ``` python
 available_days()
-# [(datetime.date(2025, 5, 21), datetime.date(2025, 5, 25))]
+# [(datetime.date(2025, 3, 31), datetime.date(2025, 4, 3))]
 ```
 
 Once we know what days data is available for, we can check within a given day
 to see what ranges of timestamps flight data is available for. The
 `feder.available_times` function returns a list of (start, end) `datetime`
 pairs showing the time ranges for which data is available. In this case, the
-file for the day used is incomplete, containing data only from 19:57:20 until
-22:03:12.
+file for the day used is complete, containing data from 00:00:00 until
+23:59:59.
 
 ``` python
-available_times(date(2025, 5, 22))
-# [(datetime.datetime(2025, 5, 22, 19, 57, 20),
-#   datetime.datetime(2025, 5, 22, 22, 3, 12))]
+available_times(date(2025, 4, 1))
+# [(datetime.datetime(2025, 4, 1, 0, 0, tzinfo=datetime.timezone.utc),
+#   datetime.datetime(2025, 4, 1, 23, 59, 59, tzinfo=datetime.timezone.utc))]
 ```
 
 During normal operations, the Feder backend servers collect data from a single
@@ -89,11 +89,11 @@ data sources as we switch over from one source to another. The
 `feder.available_sources` function allows you to investigate what data sources
 are in use for a particular day. The return value is a list of
 `feder.DataSource` values. In the example here, the data file examined
-contains only data from the Contrails API data source.
+contains only data from the FlightAware data source.
 
 ``` python
-available_sources(date(2025, 5, 22))
-# {<DataSource.CONTRAILS_API: 2>}
+available_sources(date(2025, 4, 1))
+# {<DataSource.FLIGHTAWARE: 1>}
 ```
 
 ## Constructing flight queries
@@ -103,7 +103,7 @@ class. All flight queries require a start and end time, so let's make some
 times:
 
 ``` python
-t1 = datetime(2025, 5, 22, 20, 0)
+t1 = datetime(2025, 4, 1, 20, 0)
 t2 = t1 + timedelta(minutes=30)
 ```
 
@@ -155,12 +155,12 @@ can get it like this:
 flights = list(query.run())
 ```
 
-The result is a normal list: in this case there were 8 flights matching the
+The result is a normal list: in this case there were 24 flights matching the
 query criteria.
 
 ``` python
 len(flights)
-# 8
+# 24
 ```
 
 ## Flight data
@@ -185,26 +185,24 @@ Here's part of the data for one flight:
 ``` python
 flights[0]
 # Trajectory(
-#   source_id='ab238587-3419-412e-9fd3-74120f32e65b',
-#   source=<DataSource.CONTRAILS_API: 2>,
-#   transponder_id='A1ACDB',
+#   source_id='RPA5730-1743310379-airline-1555p',
+#   source=<DataSource.FLIGHTAWARE: 1>,
+#   transponder_id='A21833',
 #   orig='KBOS',
-#   dest='KCVG',
-#   callsign='RPA5789',
-#   aircraft_type='E75S',
+#   dest='KLGA',
+#   callsign='RPA5730',
+#   aircraft_type='E75L',
 #   points=[
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 7, 1), lon=-71.022, lat=42.363, alt=12.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 7, 36), lon=-71.023, lat=42.363, alt=12.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 8, 25), lon=-71.023, lat=42.363, alt=0.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 9, 44), lon=-71.022, lat=42.36, alt=2850.0, alt_gnss=2850.0, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 10, 2), lon=-71.02, lat=42.359, alt=0.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 10, 59), lon=-71.016, lat=42.357, alt=0.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 11, 3), lon=-71.016, lat=42.357, alt=0.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 11, 55), lon=-71.015, lat=42.354, alt=0.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 12, 1), lon=-71.015, lat=42.354, alt=0.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 12, 36), lon=-71.014, lat=42.355, alt=0.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 14, 29), lon=-71.014, lat=42.355, alt=0.0, alt_gnss=None, heading=None, on_ground=False),
-#     Point(time=datetime.datetime(2025, 5, 22, 20, 14, 57), lon=-71.013, lat=42.356, alt=0.0, alt_gnss=None, heading=None, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 7, 13, tzinfo=datetime.timezone.utc), lon=-71.013, lat=42.37, alt=725.0, alt_gnss=600.0, heading=314.0, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 8, 17, tzinfo=datetime.timezone.utc), lon=-71.063, lat=42.398, alt=3275.0, alt_gnss=3125.0, heading=300.0, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 9, 28, tzinfo=datetime.timezone.utc), lon=-71.152, lat=42.385, alt=6550.0, alt_gnss=6325.0, heading=234.0, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 9, 58, tzinfo=datetime.timezone.utc), lon=-71.192, lat=42.364, alt=7975.0, alt_gnss=7725.0, heading=235.0, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 10, 58, tzinfo=datetime.timezone.utc), lon=-71.276, lat=42.32, alt=10875.0, alt_gnss=10675.0, heading=236.0, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 12, 25, tzinfo=datetime.timezone.utc), lon=-71.44, lat=42.273, alt=13900.0, alt_gnss=13725.0, heading=252.0, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 13, 25, tzinfo=datetime.timezone.utc), lon=-71.555, lat=42.243, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 14, 36, tzinfo=datetime.timezone.utc), lon=-71.696, lat=42.206, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 15, 6, tzinfo=datetime.timezone.utc), lon=-71.753, lat=42.191, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),
+#     Point(time=datetime.datetime(2025, 4, 1, 18, 16, 6, tzinfo=datetime.timezone.utc), lon=-71.871, lat=42.16, alt=14050.0, alt_gnss=13875.0, heading=251.0, on_ground=False),
 #     ...
 #   ]
 # )
@@ -218,20 +216,18 @@ data frame, like this:
 
 ``` python
 pd.DataFrame(flights[0].points)
-#                    time     lon     lat     alt  alt_gnss heading  on_ground
-# 0   2025-05-22 20:07:01 -71.022  42.363    12.0       NaN    None      False
-# 1   2025-05-22 20:07:36 -71.023  42.363    12.0       NaN    None      False
-# 2   2025-05-22 20:08:25 -71.023  42.363     0.0       NaN    None      False
-# 3   2025-05-22 20:09:44 -71.022  42.360  2850.0    2850.0    None      False
-# 4   2025-05-22 20:10:02 -71.020  42.359     0.0       NaN    None      False
-# ..                  ...     ...     ...     ...       ...     ...        ...
-# 230 2025-05-22 21:58:00 -84.474  39.053  3600.0    3550.0    None      False
-# 231 2025-05-22 21:58:58 -84.534  39.046  2675.0    2600.0    None      False
-# 232 2025-05-22 21:59:00 -84.538  39.046  2625.0    2550.0    None      False
-# 233 2025-05-22 21:59:54 -84.583  39.046  1925.0    1850.0    None      False
-# 234 2025-05-22 21:59:56 -84.584  39.046  1925.0    1850.0    None      False
-#
-# [235 rows x 7 columns]
+#                         time     lon     lat      alt  alt_gnss  heading  on_ground
+# 0  2025-04-01 18:07:13+00:00 -71.013  42.370    725.0     600.0    314.0      False
+# 1  2025-04-01 18:08:17+00:00 -71.063  42.398   3275.0    3125.0    300.0      False
+# 2  2025-04-01 18:09:28+00:00 -71.152  42.385   6550.0    6325.0    234.0      False
+# 3  2025-04-01 18:09:58+00:00 -71.192  42.364   7975.0    7725.0    235.0      False
+# 4  2025-04-01 18:10:58+00:00 -71.276  42.320  10875.0   10675.0    236.0      False
+# ...
+# 44 2025-04-01 18:54:48+00:00 -73.972  40.662   2925.0    2850.0     35.0      False
+# 45 2025-04-01 18:55:14+00:00 -73.957  40.680   2900.0    2825.0     34.0      False
+# 46 2025-04-01 18:56:25+00:00 -73.906  40.719   2075.0    2025.0     68.0      False
+# 47 2025-04-01 18:57:29+00:00 -73.849  40.730   1150.0    1100.0     70.0      False
+# 48 2025-04-01 18:58:33+00:00 -73.839  40.762    300.0     275.0    316.0      False
 ```
 
 ## Iterating over trajectories
@@ -246,14 +242,30 @@ destination and total flight time:
 ``` python
 for flight in query.run():
     print(flight.orig, flight.dest, flight.points[-1].time - flight.points[0].time)
-# KBOS KCVG 1:52:55
-# KBOS KTEB 1:01:54
-# KBOS KMSY 1:35:26
-# KBOS KLGA 1:20:31
-# KBOS KDFW 1:43:00
-# KBOS KBWI 1:40:28
-# KBOS KDEN 1:41:20
-# KBOS KLAS 1:36:05
+# KBOS KLGA 0:51:20
+# KBOS KTEB 0:51:16
+# KBOS KEWR 0:54:36
+# KBOS KLGA 0:45:18
+# KBOS KJFK 0:47:12
+# KBOS CYTZ 1:40:12
+# KBOS KROC 1:00:57
+# KBOS KDCA 1:27:42
+# KBOS CYTZ 1:40:12
+# KBOS KMSS 1:12:15
+# KBOS KDCA 1:18:25
+# KBOS KMSS 1:12:15
+# KBOS KJFK 0:47:12
+# KBOS KDCA 1:27:42
+# KBOS KACK 0:41:17
+# KBOS KACK 0:41:17
+# KBOS KTEB 0:51:16
+# KBOS KEWR 0:54:36
+# KBOS KLGA 0:45:18
+# KBOS KLGA 0:51:20
+# KBOS KROC 1:00:57
+# KBOS KDCA 1:18:25
+# KBOS KIND 2:11:43
+# KBOS KIND 2:11:43
 ```
 
 """
