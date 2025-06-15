@@ -4,7 +4,7 @@ overlap characteristics of queries."""
 
 import bz2
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from enum import Enum, auto
 from itertools import batched
 import os
@@ -113,7 +113,7 @@ class DB:
     def normalize_date(ref_date: datetime | date | int) -> datetime:
         """Convert a date to a datetime object."""
         if isinstance(ref_date, int):
-            ref_date = datetime.fromtimestamp(ref_date)
+            ref_date = datetime.fromtimestamp(ref_date, tz=timezone.utc)
         if isinstance(ref_date, date):
             ref_date = datetime(ref_date.year, ref_date.month, ref_date.day)
         return ref_date

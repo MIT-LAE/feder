@@ -2,7 +2,7 @@
 
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from operator import attrgetter
 from typing import Self
@@ -82,7 +82,7 @@ class Point:
         for i in range(npoints):
             pt = unpacker(cls._POINT_FORMAT, multiple=True)
             points.append(cls(
-                time=datetime.fromtimestamp(pt[0]),
+                time=datetime.fromtimestamp(pt[0], tz=timezone.utc),
                 lon=milli(pt[1]), lat=milli(pt[2]),
                 alt=decode_opt_float(milli(pt[3])),
                 alt_gnss=decode_opt_float(milli(pt[4])),

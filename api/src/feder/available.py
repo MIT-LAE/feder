@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import glob
 import itertools
 from operator import itemgetter
@@ -47,11 +47,11 @@ def available_times(day: date) -> list[tuple[datetime, datetime]]:
     merged = union_of_ranges(timestamp_ranges)
 
     # Convert to datetime values and clip to the given day.
-    minval = datetime.combine(day, datetime.min.time())
-    maxval = datetime.combine(day, datetime.max.time())
+    minval = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+    maxval = datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc)
     return [
-        (max(minval, datetime.fromtimestamp(r[0])),
-         min(maxval, datetime.fromtimestamp(r[1])))
+        (max(minval, datetime.fromtimestamp(r[0], tz=timezone.utc)),
+         min(maxval, datetime.fromtimestamp(r[1], tz=timezone.utc)))
         for r in merged
     ]
 

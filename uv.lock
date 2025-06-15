@@ -293,17 +293,17 @@ wheels = [
 
 [[package]]
 name = "feder"
-version = "0.1.14"
+version = "0.1.15"
 source = { editable = "api" }
 
 [[package]]
 name = "feder-common"
-version = "0.1.14"
+version = "0.1.15"
 source = { editable = "libs/common" }
 
 [[package]]
 name = "feder-ingest"
-version = "0.1.14"
+version = "0.1.15"
 source = { editable = "apps/feder-ingest" }
 dependencies = [
     { name = "click" },
@@ -322,7 +322,7 @@ requires-dist = [
 
 [[package]]
 name = "feder-root"
-version = "0.1.14"
+version = "0.1.15"
 source = { virtual = "." }
 
 [package.dev-dependencies]
@@ -355,7 +355,7 @@ dev = [
 
 [[package]]
 name = "feder-rx"
-version = "0.1.14"
+version = "0.1.15"
 source = { editable = "apps/feder-rx" }
 dependencies = [
     { name = "click" },
@@ -380,7 +380,7 @@ requires-dist = [
 
 [[package]]
 name = "feder-server"
-version = "0.1.14"
+version = "0.1.15"
 source = { editable = "libs/server" }
 dependencies = [
     { name = "pandas" },
@@ -1449,7 +1449,7 @@ wheels = [
 
 [[package]]
 name = "state-of-feder"
-version = "0.1.14"
+version = "0.1.15"
 source = { editable = "apps/state-of-feder" }
 dependencies = [
     { name = "click" },

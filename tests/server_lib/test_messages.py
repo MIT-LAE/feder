@@ -1,5 +1,5 @@
 import bz2
-from datetime import datetime
+from datetime import datetime, timezone
 
 from hypothesis import given, settings, strategies as st
 
@@ -24,7 +24,8 @@ def test_liveness_query_encoding(q):
 @given(st.builds(
     IngesterLivenessResponse,
     source=short_string_strategy,
-    time=st.integers(min_value=EARLIEST_TIME, max_value=LATEST_TIME).map(datetime.fromtimestamp),
+    time=st.integers(min_value=EARLIEST_TIME, max_value=LATEST_TIME).map(
+        lambda ts: datetime.fromtimestamp(ts, tz=timezone.utc)),
     status=st.sampled_from(Liveness)
 ))
 @settings(max_examples=1000)

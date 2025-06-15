@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import string
 
 from hypothesis import strategies as st
@@ -22,7 +22,8 @@ airport_strategy=st.one_of(
 
 point_strategy = st.builds(
     Point,
-    time=st.integers(min_value=EARLIEST_TIME, max_value=LATEST_TIME).map(datetime.fromtimestamp),
+    time=st.integers(min_value=EARLIEST_TIME, max_value=LATEST_TIME).map(
+        lambda ts: datetime.fromtimestamp(ts, tz=timezone.utc)),
     lon=st.floats(min_value=-180.0, max_value=180.0).map(milli),
     lat=st.floats(min_value=-90.0, max_value=90.0).map(milli),
     alt=st.floats(min_value=-5000.0, max_value=100000.0).map(milli),

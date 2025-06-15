@@ -1,6 +1,6 @@
 import csv
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from queue import Queue
 from typing import Generator
 
@@ -89,7 +89,9 @@ class CSVSource(FileSource):
                 try:
                     self._source_ids.append(row[idx.id_col])
                     self._transponder_ids.append(row[idx.hexid_col])
-                    self._times.append(datetime.fromtimestamp(int(row[idx.clock_col])))
+                    self._times.append(
+                        datetime.fromtimestamp(int(row[idx.clock_col]), tz=timezone.utc)
+                    )
                     self._callsigns.append(row[idx.ident_col])
                     self._origs.append(n(row, idx.orig_col, str))
                     self._dests.append(n(row, idx.dest_col, str))

@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import bz2
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from enum import Enum, auto
 import logging
 from typing import Self
@@ -86,7 +86,8 @@ class Trajectory(Message):
                 aircraft_type = fixes[0].aircraft_type or '',
                 points=[
                     models.Point(
-                        time=datetime.fromtimestamp(f.time), lon=f.lon, lat=f.lat,
+                        time=datetime.fromtimestamp(f.time, tz=timezone.utc),
+                        lon=f.lon, lat=f.lat,
                         alt=_substitute_none(f.alt),
                         alt_gnss=_substitute_none(f.alt_gnss),
                         heading=_substitute_none(f.heading),
@@ -183,7 +184,7 @@ class IngesterLivenessResponse(Message):
     def _unpack(cls, unpacker: Unpacker) -> Self:
         return cls(
             source=unpacker.str(),
-            time=datetime.fromtimestamp(unpacker('>Q')),
+            time=datetime.fromtimestamp(unpacker('>Q'), tz=timezone.utc),
             status=Liveness(unpacker('>B')),
             last_ingested=unpacker('>q')
         )
