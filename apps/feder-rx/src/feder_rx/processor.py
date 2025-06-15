@@ -66,7 +66,7 @@ class Processor:
         self._pending_rmq_messages = {}
         self._fix_count_total = 0
         self._fix_count_last_completion = 0
-        self._fix_time_latest = datetime(1, 1, 1)
+        self._fix_time_latest = datetime(1, 1, 1, tzinfo=timezone.utc)
         self._fix_time_last_completion = None
         self._real_time_last_completion = datetime.now(timezone.utc)
         self._trajectory_count = 0

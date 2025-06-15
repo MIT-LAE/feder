@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import os
 from queue import PriorityQueue
@@ -108,12 +108,12 @@ def run(
     end_datetime: datetime | None = None
     if start_time is not None and end_time is not None:
         try:
-            start_datetime = datetime.fromisoformat(start_time)
+            start_datetime = datetime.fromisoformat(start_time).replace(tzinfo=timezone.utc)
         except ValueError:
             logger.critical('invalid ISO 8601 time for "start-time"')
             sys.exit(1)
         try:
-            end_datetime = datetime.fromisoformat(end_time)
+            end_datetime = datetime.fromisoformat(end_time).replace(tzinfo=timezone.utc)
         except ValueError:
             logger.critical('invalid ISO 8601 time for "end-time"')
             sys.exit(1)

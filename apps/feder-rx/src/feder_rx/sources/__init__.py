@@ -121,7 +121,7 @@ class FileSource(Source):
         self.files = expanded_files
 
         fix_count = 0
-        latest_time = datetime(1, 1, 1)
+        latest_time = datetime(1, 1, 1, tzinfo=timezone.utc)
         for f in self.files:
             cached_path = self.cached_file(f)
             if cached_path is not None:
