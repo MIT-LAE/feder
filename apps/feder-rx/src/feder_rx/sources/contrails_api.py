@@ -98,7 +98,7 @@ class ContrailsAPISource(DateSource):
     def run_historical(self):
         request_time = self.start_time
         fix_count = 0
-        latest_time = datetime(1, 1, 1)
+        latest_time = datetime(1, 1, 1, tzinfo=timezone.utc)
         while request_time <= self.end_time:
             df_or_status = self._retrieve(request_time)
             if isinstance(df_or_status, int):
@@ -161,7 +161,9 @@ class ContrailsAPISource(DateSource):
             # One source position command per row.
             self._source_ids.append(tup.flight_id)
             self._transponder_ids.append(tup.icao_address)
-            self._times.append(tup.timestamp.to_pydatetime())
+            self._times.append(
+                tup.timestamp.to_pydatetime().replace(tzinfo=timezone.utc)
+            )
             self._callsigns.append(n(tup.callsign, str))
             self._origs.append(n(tup.departure_airport_icao, str))
             self._dests.append(n(tup.arrival_airport_icao, str))
@@ -201,7 +203,7 @@ class ContrailsAPISource(DateSource):
         retrieval_time = ceil_time(retrieval_time, 'h')
         retries = 0
         fix_count = 0
-        latest_time = datetime(1, 1, 1)
+        latest_time = datetime(1, 1, 1, tzinfo=timezone.utc)
         while not self.stopped:
             log_time = retrieval_time.strftime('%Y-%m-%dT%H')
 
