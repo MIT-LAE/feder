@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from queue import PriorityQueue
 from threading import Thread
 import time
@@ -39,7 +39,7 @@ def test_source_position_command_processing(config):
     def send_position_fixes():
         queue.put(SourcePositionCommand(
             source_id='DUMMY-001', transponder_id='DUMMY',
-            time=datetime(2025, 4, 1, 12, 0),
+            time=datetime(2025, 4, 1, 12, 0, tzinfo=timezone.utc),
             orig='DUMA', dest='DUMZ',
             callsign='DUMMY', aircraft_type=None,
             lat=41.0, lon=-95.0, alt=35000, alt_gnss=None, heading=None,
@@ -47,7 +47,7 @@ def test_source_position_command_processing(config):
         ))
         queue.put(SourcePositionCommand(
             source_id='DUMMY-001', transponder_id='DUMMY',
-            time=datetime(2025, 4, 1, 12, 1),
+            time=datetime(2025, 4, 1, 12, 1, tzinfo=timezone.utc),
             orig='DUMA', dest='DUMZ',
             callsign='DUMMY', aircraft_type=None,
             lat=41.1, lon=-95.0, alt=35000, alt_gnss=None, heading=None,
@@ -55,13 +55,13 @@ def test_source_position_command_processing(config):
         ))
         queue.put(SourcePositionCommand(
             source_id='DUMMY-001', transponder_id='DUMMY',
-            time=datetime(2025, 4, 1, 12, 2),
+            time=datetime(2025, 4, 1, 12, 2, tzinfo=timezone.utc),
             orig='DUMA', dest='DUMZ',
             callsign='DUMMY', aircraft_type=None,
             lat=41.2, lon=-95.0, alt=35000, alt_gnss=None, heading=None,
             on_ground=False
         ))
-        queue.put(SourceDoneCommand(latest_time=datetime(2025, 4, 1, 12, 2)))
+        queue.put(SourceDoneCommand(latest_time=datetime(2025, 4, 1, 12, 2, tzinfo=timezone.utc)))
         time.sleep(0.01)
         queue.put(RMQCommand(
             message=rmq.AckMessage(delivery_tag=DELIVERY_TAG)

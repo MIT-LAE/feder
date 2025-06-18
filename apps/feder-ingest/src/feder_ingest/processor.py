@@ -2,12 +2,13 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 import logging
 from queue import PriorityQueue
+import sqlite3
 from threading import Event
 from typing import cast
 
 from feder_server import (
     Config, RMQ, IngesterLivenessChecker,
-    Liveness, TrajectoryBatch, log_counts
+    Liveness, TrajectoryBatch, log_counts, error_counter
 )
 import feder_server.rmq as rmq
 
@@ -74,8 +75,24 @@ class Processor:
                                 self._trajectory_count, len(batch.trajectories), 2
                             )
 
+                            # If something goes wrong saving an individual
+                            # trajectory, DO NOT make the whole ingester fail!
+                            # Just log the error and mark it in the error
+                            # monitoring metric. This stops us losing any data
+                            # from OK trajectories in the batch following a bad
+                            # one.
+                            any_failed = False
                             for traj in batch.trajectories:
-                                self.db.add_trajectory(traj.model)
+                                try:
+                                    self.db.add_trajectory(traj.model)
+                                except sqlite3.Error as exc:
+                                    any_failed = True
+                                    logger.error(
+                                        'Database insert failed for ID: %s, exception: %s',
+                                        traj.model.source_id, exc
+                                    )
+                            if any_failed:
+                                error_counter.labels(source='ingester').inc()
 
                             # Make sure the trajectory count is monotonically
                             # increasing! If batches get delivered out of
