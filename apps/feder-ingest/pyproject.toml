@@ -1,6 +1,6 @@
 [project]
 name = "feder-ingest"
-version = "0.1.17"
+version = "0.1.18"
 description = "Feder ingester"
 readme = "README.md"
 authors = [
