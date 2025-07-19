@@ -16,7 +16,7 @@ do something like (we'll use Mamba, because it's faster!):
 mamba create -n feder-test python==3.13
 mamba activate feder-test
 mamba install pandas
-pip install /home/mcast/feder/dist/feder-0.1.19-py3-none-any.whl
+pip install /home/mcast/feder/dist/feder-0.1.20-py3-none-any.whl
 ```
 
 You install the `feder` package itself from a "wheel file". This is just a

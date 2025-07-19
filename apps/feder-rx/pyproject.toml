@@ -1,6 +1,6 @@
 [project]
 name = "feder-rx"
-version = "0.1.19"
+version = "0.1.20"
 description = "Feder receiver"
 readme = "README.md"
 authors = [
