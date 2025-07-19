@@ -151,6 +151,9 @@ class ContrailsAPISource(DateSource):
             (df.latitude >= min_lat) & (df.latitude <= max_lat)
         ]
         filtered_rows = len(df)
+        if len(df) == 0:
+            logger.warning('no data from Contrails API data for this time!')
+            return
         logger.info(
             'retrieved %s rows from Contrails API, filtered to %s rows',
             unfiltered_rows, filtered_rows
