@@ -1,6 +1,8 @@
+from datetime import datetime
 import logging
 from queue import PriorityQueue
 import signal
+import time
 
 import click
 from prometheus_client import start_http_server
@@ -80,6 +82,8 @@ def run(debug: bool, config: str | None) -> None:
     error_counter.labels(source='ingester').inc(0)
 
     clean_stop = False
+    last_exception = None
+    exception_backoff = 5  # seconds
     while not clean_stop:
         try:
             # Set up RabbitMQ handler.
@@ -120,6 +124,20 @@ def run(debug: bool, config: str | None) -> None:
         except Exception:
             logger.exception('unhandled exception in ingester')
             error_counter.labels(source='ingester').inc()
+            this_exception = datetime.now()
+            if last_exception is not None:
+                delta = (this_exception - last_exception).total_seconds()
+                if delta > exception_backoff:
+                    exception_backoff = 5
+                else:
+                    logger.warning(
+                        'repeated exception in ingester: persistent error?'
+                    )
+                    exception_backoff = min(300, exception_backoff * 2)
+            last_exception = this_exception
+            time.sleep(exception_backoff)
+            last_exception = datetime.now()
+            logger.info('restarting ingester after unhandled exception')
         finally:
             if checkpoint_timer is not None:
                 checkpoint_timer.stop()
