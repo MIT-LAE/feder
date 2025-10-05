@@ -42,8 +42,6 @@ class ContrailsAPISource(DateSource):
         super().__init__(config, queue, *args, **kwargs)
         self.api_key = config.credentials(self.SOURCE)['api_key']
         self.bounds = config.bounds(self.SOURCE)
-        if self.bounds is None:
-            raise ValueError('Contrails API source requires bounds')
         self._clear()
 
         # There's no way to check that the credentials are OK at this point.
@@ -138,18 +136,18 @@ class ContrailsAPISource(DateSource):
             return None if pd.isna(x) or x == '' else xform(x)
 
         # Ignore records with no callsign!
-        #
-        # NOTE: Contrails API returns rows in *reverse* time order so let's be
-        # defensive and reverse them to get them in the right order if that's
-        # the case!
-        assert self.bounds is not None
-        min_lon, max_lon, min_lat, max_lat = self.bounds
+        filter = ~df.callsign.isna() & ~df.flight_id.isna() & ~df.timestamp.isna()
+
+        # Spatial filtering if required.
+        if self.bounds is not None:
+            min_lon, max_lon, min_lat, max_lat = self.bounds
+            filter &= (
+                (df.longitude >= min_lon) & (df.longitude <= max_lon) &
+                (df.latitude >= min_lat) & (df.latitude <= max_lat)
+            )
+
         unfiltered_rows = len(df)
-        df = df[
-            ~df.callsign.isna() & ~df.flight_id.isna() & ~df.timestamp.isna() &
-            (df.longitude >= min_lon) & (df.longitude <= max_lon) &
-            (df.latitude >= min_lat) & (df.latitude <= max_lat)
-        ]
+        df = df[filter]
         filtered_rows = len(df)
         if len(df) == 0:
             logger.warning('no data from Contrails API data for this time!')
@@ -158,8 +156,13 @@ class ContrailsAPISource(DateSource):
             'retrieved %s rows from Contrails API, filtered to %s rows',
             unfiltered_rows, filtered_rows
         )
+
+        # NOTE: Contrails API returns rows in *reverse* time order so let's be
+        # defensive and reverse them to get them in the right order if that's
+        # the case!
         if df.timestamp.iloc[0] > df.timestamp.iloc[-1]:
             df = df[::-1]
+
         for tup in df.itertuples(index=False):
             # One source position command per row.
             self._source_ids.append(tup.flight_id)
