@@ -5,6 +5,7 @@ from queue import PriorityQueue
 import signal
 import sys
 import threading
+import time
 
 import click
 from prometheus_client import start_http_server
@@ -187,6 +188,8 @@ def run(
 
     error_counter.labels(source=name).inc(0)
     clean_stop = False
+    last_exception = None
+    exception_backoff = 5  # seconds
     while not clean_stop:
         try:
             # Set up RabbitMQ handler.
@@ -235,6 +238,20 @@ def run(
             logger.exception('unhandled exception in receiver')
             if prom_server is not None:
                 error_counter.labels(source=name).inc()
+            this_exception = datetime.now()
+            if last_exception is not None:
+                delta = (this_exception - last_exception).total_seconds()
+                if delta > exception_backoff:
+                    exception_backoff = 5
+                else:
+                    logger.warning(
+                        'repeated exception in receiver: persistent error?'
+                    )
+                    exception_backoff = min(300, exception_backoff * 2)
+            last_exception = this_exception
+            time.sleep(exception_backoff)
+            last_exception = datetime.now()
+            logger.info('restarting receiver after unhandled exception')
         finally:
             # If we get here, the processor has stopped, so we need to
             # clean up the worker threads and RabbitMQ.
