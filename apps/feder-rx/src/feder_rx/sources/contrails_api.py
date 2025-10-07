@@ -130,7 +130,7 @@ class ContrailsAPISource(DateSource):
         logger.info('total position fixes from source: %s', fix_count)
         self.put(SourceDoneCommand(latest_time))
 
-    def process_df(self, df) -> Generator[Command, None, None]:
+    def process_df(self, df) -> Generator[Command]:
         # Helper for value conversion.
         def n(x, xform):
             return None if pd.isna(x) or x == '' else xform(x)

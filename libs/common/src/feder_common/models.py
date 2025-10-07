@@ -113,8 +113,7 @@ class Trajectory:
     points: list[Point]
     """A list of points in the trajectory."""
     partial: bool = False
-    """True if the trajectory is partial (i.e., contains only a subset of the
-    trajectory's waypoints), False if complete."""
+    """Was the trajectory generated from a query using waypoint filtering?"""
 
     def pack(self, packer: Packer | None = None) -> bytes:
         """Pack to binary data. @private"""

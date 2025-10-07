@@ -16,14 +16,13 @@ do something like (we'll use Mamba, because it's faster!):
 mamba create -n feder-test python==3.13
 mamba activate feder-test
 mamba install pandas
-pip install /home/mcast/feder/dist/feder-0.1.20-py3-none-any.whl
+pip install --extra-index-url https://www.mit.edu/~iross/pypi feder
 ```
 
-You install the `feder` package itself from a "wheel file". This is just a
-packaged-up version of the Feder API code: when you install a package from
-PyPI using `pip`, the thing you actually download to install is usually a
-wheel file. In this case, I don't want to upload Feder to PyPI, so we just
-keep the wheel file locally on Hex for you to install.
+The "`--extra-index-url`" option tells `pip` to look for the Feder package in a
+Python package repository hosted on the MIT Athena system, which is where I
+keep Feder releases. This avoids problems with trying to install packages from
+MIT's private GitHub instance.
 
 Once you've installed Feder, you can just run `python` and do things like
 those shown in the following dialog with the Python interpreter. (You can of
@@ -144,6 +143,13 @@ query = (
 )
 ```
 
+The above queries will retrieve complete trajectories matching the given
+criteria. In some cases, you may want to filter the trajectory waypoints to
+include only those individual waypoints that meet the selection criteria. You
+can do this by adding the `filter_waypoints` option to your query. The
+resulting `feder.Trajectory` values returned from the query will be marked as
+"partial" to indicate that the waypoints have been filtered.
+
 ## Executing flight queries
 
 Once we have built a flight query, we can execute it by calling its `run`
@@ -175,10 +181,12 @@ have fields for:
 - the flight callsign (`callsign`),
 - the ICAO aircraft type (`aircraft_type`),
 
-plus the flight trajectory as a list of `feder.Point` values, each of which
-has time, latitude, longitude, altitude (`alt` for uncorrected pressure
-altitude in feet above 1013 hPa and `alt_gnss` for GNSS height in feet
-relative to the WGS-84 datum), heading and an "on ground" flag.
+plus the flight trajectory as a list of `feder.Point` values, each of which has
+time, latitude, longitude, altitude (`alt` for uncorrected pressure altitude in
+feet above 1013 hPa and `alt_gnss` for GNSS height in feet relative to the
+WGS-84 datum), heading and an "on ground" flag. In addition, `feder.Trajectory`
+has a boolean `partial` flag to indicate whether the trajectory is the result
+of a query using waypoint filtering or not.
 
 Here's part of the data for one flight:
 
@@ -192,6 +200,7 @@ flights[0]
 #   dest='KLGA',
 #   callsign='RPA5730',
 #   aircraft_type='E75L',
+#   partial=False,
 #   points=[
 #     Point(time=datetime.datetime(2025, 4, 1, 18, 7, 13, tzinfo=datetime.timezone.utc), lon=-71.013, lat=42.37, alt=725.0, alt_gnss=600.0, heading=314.0, on_ground=False),
 #     Point(time=datetime.datetime(2025, 4, 1, 18, 8, 17, tzinfo=datetime.timezone.utc), lon=-71.063, lat=42.398, alt=3275.0, alt_gnss=3125.0, heading=300.0, on_ground=False),

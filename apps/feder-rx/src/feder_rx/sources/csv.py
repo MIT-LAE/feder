@@ -64,7 +64,7 @@ class CSVSource(FileSource):
         self._on_grounds = []
         self._nrows = 0
 
-    def process_file(self, filename) -> Generator[Command, None, None]:
+    def process_file(self, filename) -> Generator[Command]:
         # Helper for value conversion.
         def n(r, c, xform):
             return None if r[c] == '' else xform(r[c])

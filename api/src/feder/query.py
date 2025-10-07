@@ -136,7 +136,7 @@ class FlightQuery:
     def filter_waypoints(self) -> Self:
         """Filter waypoints in the returned trajectories.
 
-        FEder normally returns complete trajectories, including all waypoints.
+        Feder normally returns complete trajectories, including all waypoints.
         This option causes queries to return "partial" trajectories that
         contain only the waypoints that match the exact query conditions. In
         particular, only waypoints within the specified time range and/or
@@ -145,7 +145,7 @@ class FlightQuery:
         self._filter_waypoints = True
         return self
 
-    def run(self) -> Generator[Trajectory, None, None]:
+    def run(self) -> Generator[Trajectory]:
         """Run the query and yield matching trajectories."""
 
         data_dir = os.environ.get('FEDER_DATA_DIR')

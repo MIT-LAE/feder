@@ -31,10 +31,12 @@ given flight (possibly restricted to a selected temporal or spatial domain).
 The Feder API works in terms of these trajectories (or parts of trajectories),
 and the server processes generate trajectory records for full flights by
 collecting position fixes until it appears that a flight is complete and then
-saving a full trajectory record for the flight. As well as being a more
-natural way to think about this data for most applications, this also makes
-storing and querying the flight data much more efficient than a solution that
-deals only with individual position fixes.
+saving a full trajectory record for the flight. As well as being a more natural
+way to think about this data for most applications, this also makes storing and
+querying the flight data much more efficient than a solution that deals only
+with individual position fixes. Applications that need to work with exactly
+those waypoints in a trajectory that lie within a given temporal or spatial
+range may use the waypoint filtering option of the `feder.FlightQuery` class.
 
 ## Data units
 
@@ -66,7 +68,7 @@ get started quickly and check that things are working, you can do this in the
 shell:
 
 ``` shell
-pip install /home/mcast/feder/dist/feder-0.1.20-py3-none-any.whl
+pip install --extra-index-url https://www.mit.edu/~iross/pypi feder
 export FEDER_DATA_DIR=/home/mcast/data/feder
 ```
 
