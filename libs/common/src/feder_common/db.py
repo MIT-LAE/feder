@@ -148,7 +148,7 @@ class DB:
             self, source: DataSource, source_id: str
     ) -> Trajectory | None:
         # Return a single result from _retrieve's generator.
-        return next(self._retrieve(source, ids=[source_id]), None)
+        return next(self._retrieve([], source, ids=[source_id]), None)
 
     def timestamp_ranges(self) -> list[tuple[int, int]]:
         cur = self.cursor()
@@ -170,9 +170,11 @@ class DB:
             orig: str | None = None,
             dest: str | None = None,
             temporal_query_type: TemporalQueryType = TemporalQueryType.INTERSECTS,
-            spatial_query_type: SpatialQueryType | None = None
-    ) -> Generator[Trajectory, None, None]:
+            spatial_query_type: SpatialQueryType | None = None,
+            filter_waypoints: bool = False
+    ) -> Generator[Trajectory]:
         id_conditions = []
+        pt_conditions = []
 
         if max_time < min_time:
             raise ValueError('flight query max_time must be larger than min_time')
@@ -180,6 +182,9 @@ class DB:
         def time_condition(field1: str, cond1: str, field2: str, cond2: str):
             id_conditions.append((f'{field1}_timestamp {cond1} ?', min_time.timestamp()))
             id_conditions.append((f'{field2}_timestamp {cond2} ?', max_time.timestamp()))
+            if filter_waypoints:
+                pt_conditions.append(('time >= ?', min_time.timestamp()))
+                pt_conditions.append(('time <= ?', max_time.timestamp()))
 
         match temporal_query_type:
             case TemporalQueryType.INTERSECTS:
@@ -202,26 +207,47 @@ class DB:
                 case SpatialQueryType.CROSSES:
                     if bounds.min_lat is not None:
                         id_conditions.append(('max_latitude >= ?', bounds.min_lat))
+                        if filter_waypoints:
+                            pt_conditions.append(('lat >= ?', bounds.min_lat))
                     if bounds.max_lat is not None:
                         id_conditions.append(('min_latitude <= ?', bounds.max_lat))
+                        if filter_waypoints:
+                            pt_conditions.append(('lat <= ?', bounds.max_lat))
                     if bounds.min_lon is not None:
                         id_conditions.append(('max_longitude >= ?', bounds.min_lon))
+                        if filter_waypoints:
+                            pt_conditions.append(('lon >= ?', bounds.min_lon))
                     if bounds.max_lon is not None:
                         id_conditions.append(('min_longitude <= ?', bounds.max_lon))
+                        if filter_waypoints:
+                            pt_conditions.append(('lon <= ?', bounds.max_lon))
                     if bounds.min_alt is not None:
                         id_conditions.append(('max_altitude >= ?', bounds.min_alt))
+                        if filter_waypoints:
+                            pt_conditions.append(('alt >= ?', bounds.min_alt))
                     if bounds.max_alt is not None:
                         id_conditions.append(('min_altitude <= ?', bounds.max_alt))
+                        if filter_waypoints:
+                            pt_conditions.append(('alt <= ?', bounds.max_alt))
                 case SpatialQueryType.WITHIN:
                     if bounds.min_lat is not None and bounds.max_lat is not None:
                         id_conditions.append(('min_latitude >= ?', bounds.min_lat))
                         id_conditions.append(('max_latitude <= ?', bounds.max_lat))
+                        if filter_waypoints:
+                            pt_conditions.append(('lat >= ?', bounds.min_lat))
+                            pt_conditions.append(('lat <= ?', bounds.max_lat))
                     if bounds.min_lon is not None and bounds.max_lon is not None:
                         id_conditions.append(('min_longitude >= ?', bounds.min_lon))
                         id_conditions.append(('max_longitude <= ?', bounds.max_lon))
+                        if filter_waypoints:
+                            pt_conditions.append(('lon >= ?', bounds.min_lon))
+                            pt_conditions.append(('lon <= ?', bounds.max_lon))
                     if bounds.min_alt is not None and bounds.max_alt is not None:
                         id_conditions.append(('min_altitude >= ?', bounds.min_alt))
                         id_conditions.append(('max_altitude <= ?', bounds.max_alt))
+                        if filter_waypoints:
+                            pt_conditions.append(('alt >= ?', bounds.min_alt))
+                            pt_conditions.append(('alt <= ?', bounds.max_alt))
 
         if source is not None:
             id_conditions.append(('source = ?', source.value))
@@ -238,16 +264,19 @@ class DB:
 
         # Batch the IDs to keep the length of SQL queries reasonable.
         for batch in batched(ids, 50):
-            yield from self._retrieve(source, list(batch), callsign, orig, dest)
+            yield from self._retrieve(
+                pt_conditions, source, list(batch), callsign, orig, dest
+            )
 
     def _retrieve(
             self,
+            pt_conditions: list[tuple[str, object]],
             source: DataSource | None,
             ids: str | list[str],
             callsign: str | None = None,
             orig: str | None = None,
             dest: str | None = None
-    ) -> Generator[Trajectory, None, None]:
+    ) -> Generator[Trajectory]:
         # Normalize ID list parameter.
         if not isinstance(ids, list):
             ids = [ids]
@@ -270,24 +299,72 @@ class DB:
         string_condition('orig', orig)
         string_condition('dest', dest)
 
+        partial = len(pt_conditions) > 0
+        pt_filter = self._make_point_filter(pt_conditions) if partial else None
+
         # Build SQL and query parameters from parallel lists.
-        sql = """SELECT source, source_id, transponder_id, orig, dest,
-                        callsign, aircraft_type, points
-                   FROM trajectories WHERE """
+        traj_sql = (
+            """SELECT source, source_id, transponder_id, orig, dest,
+                      callsign, aircraft_type, points
+                 FROM trajectories WHERE """ +
+                 self._build_sql_conditions(conditions, ids)
+        )
+        traj_cur = self.cursor()
+        traj_cur.execute(traj_sql, tuple(p[1] for p in conditions) + tuple(ids))
+
+        for traj_rec in traj_cur:
+            points = Point.unpack(bz2.decompress(traj_rec[7]))
+            if pt_filter is not None:
+                points = list(filter(pt_filter, points))
+            yield Trajectory(
+                source=DataSource(traj_rec[0]), source_id=traj_rec[1],
+                transponder_id=traj_rec[2], orig=traj_rec[3], dest=traj_rec[4],
+                callsign=traj_rec[5], aircraft_type=traj_rec[6],
+                points=points, partial=partial
+            )
+
+    def _build_sql_conditions(self, conditions, ids):
+        sql = ''
         if len(conditions) > 0:
             sql += ' AND '.join(p[0] for p in conditions)
             sql += ' AND '
         sql += 'id IN (' + ",".join("?" for _ in ids) + ')'
-        parameters = tuple(p[1] for p in conditions) + tuple(ids)
+        return sql
 
-        cur = self.cursor()
-        cur.execute(sql, parameters)
+    def _build_point_sql_conditions(self, conditions):
+        if len(conditions) == 0:
+            return ''
+        return ' AND ' + ' AND '.join(p[0] for p in conditions)
 
-        for traj_rec in cur:
-            traj = Trajectory(
-                source=DataSource(traj_rec[0]), source_id=traj_rec[1],
-                transponder_id=traj_rec[2], orig=traj_rec[3], dest=traj_rec[4],
-                callsign=traj_rec[5], aircraft_type=traj_rec[6],
-                points=Point.unpack(bz2.decompress(traj_rec[7]))
-            )
-            yield traj
+    def _make_point_filter(self, pt_conditions):
+        def point_filter(p: Point) -> bool:
+            for cond, val in pt_conditions:
+                match cond:
+                    case 'time >= ?':
+                        if p.time.timestamp() < val:
+                            return False
+                    case 'time <= ?':
+                        if p.time.timestamp() > val:
+                            return False
+                    case 'lat >= ?':
+                        if p.lat < val:
+                            return False
+                    case 'lat <= ?':
+                        if p.lat > val:
+                            return False
+                    case 'lon >= ?':
+                        if p.lon < val:
+                            return False
+                    case 'lon <= ?':
+                        if p.lon > val:
+                            return False
+                    case 'alt >= ?':
+                        if p.alt is None or p.alt < val:
+                            return False
+                    case 'alt <= ?':
+                        if p.alt is None or p.alt > val:
+                            return False
+                    case _:
+                        raise ValueError(f'unsupported point condition {cond}')
+            return True
+        return point_filter

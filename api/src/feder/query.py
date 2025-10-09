@@ -46,6 +46,8 @@ class FlightQuery:
         self._orig: str | None = None
         self._dest: str | None = None
 
+        self._filter_waypoints: bool = False
+
     def time_intersects(self) -> Self:
         """Set the temporal query type to "intersects".
 
@@ -131,6 +133,18 @@ class FlightQuery:
         self._source = source
         return self
 
+    def filter_waypoints(self) -> Self:
+        """Filter waypoints in the returned trajectories.
+
+        FEder normally returns complete trajectories, including all waypoints.
+        This option causes queries to return "partial" trajectories that
+        contain only the waypoints that match the exact query conditions. In
+        particular, only waypoints within the specified time range and/or
+        bounding box will be included.
+        """
+        self._filter_waypoints = True
+        return self
+
     def run(self) -> Generator[Trajectory, None, None]:
         """Run the query and yield matching trajectories."""
 
@@ -154,7 +168,8 @@ class FlightQuery:
             for traj in db.query_flights(
                     self._min_time, self._max_time, self._bounds,
                     self._source, self._callsign, self._orig, self._dest,
-                    self._temporal_query_type, self._spatial_query_type
+                    self._temporal_query_type, self._spatial_query_type,
+                    self._filter_waypoints
             ):
                 yield traj
 

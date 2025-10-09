@@ -112,6 +112,9 @@ class Trajectory:
     """The ICAO type of the aircraft."""
     points: list[Point]
     """A list of points in the trajectory."""
+    partial: bool = False
+    """True if the trajectory is partial (i.e., contains only a subset of the
+    trajectory's waypoints), False if complete."""
 
     def pack(self, packer: Packer | None = None) -> bytes:
         """Pack to binary data. @private"""
