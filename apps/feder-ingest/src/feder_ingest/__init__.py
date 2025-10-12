@@ -20,7 +20,7 @@ from .db_cache import DBCache
 from .processor import Processor
 
 
-__version__ = '0.1.20'
+__version__ = '0.1.21'
 
 
 logger = logging.getLogger(__name__)

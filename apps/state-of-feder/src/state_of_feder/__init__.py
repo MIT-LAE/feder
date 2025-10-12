@@ -9,7 +9,7 @@ from .data import retrieve_data
 from .email import send_email
 
 
-__version__ = '0.1.20'
+__version__ = '0.1.21'
 
 
 logger = logging.getLogger(__name__)

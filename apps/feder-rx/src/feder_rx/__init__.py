@@ -26,7 +26,7 @@ from .processor import Processor
 from .db import DB
 
 
-__version__ = '0.1.20'
+__version__ = '0.1.21'
 
 
 logger = logging.getLogger(__name__)
