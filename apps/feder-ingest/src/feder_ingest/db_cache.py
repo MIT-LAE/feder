@@ -182,9 +182,9 @@ class DBCache:
         db_p1 = self.connect(traj.points[0].time + timedelta(days=1))
 
         # Any existing trajectories in any of those databases?
-        traj_0 = db_0.get_flight_by_id(traj.source, traj.source_id)
-        traj_m1 = db_m1.get_flight_by_id(traj.source, traj.source_id)
-        traj_p1 = db_p1.get_flight_by_id(traj.source, traj.source_id)
+        traj_0 = db_0.get_flight_by_source_id(traj.source, traj.source_id)
+        traj_m1 = db_m1.get_flight_by_source_id(traj.source, traj.source_id)
+        traj_p1 = db_p1.get_flight_by_source_id(traj.source, traj.source_id)
 
         # The trajectory is partial, since we've found parts of it already in
         # one of these database files, so merge the trajectory data.

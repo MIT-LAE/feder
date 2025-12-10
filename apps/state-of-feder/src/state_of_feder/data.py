@@ -27,7 +27,7 @@ def small_file_sizes(cfg: Config) -> list[tuple[date, int]]:
     data_dir = Path(cfg.data_directory)
     sizes = [
         (datetime.strptime(file.stem, '%Y-%j').date(), file.stat().st_size)
-        for file in data_dir.glob('**/*')
+        for file in data_dir.glob('**/*.sqlite')
         if file.is_file() and file.stat().st_size < 50 * 1024 * 1024
     ]
     return sorted(sizes, key=lambda x: x[1])

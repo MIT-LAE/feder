@@ -144,11 +144,11 @@ class DB:
         cur.execute('SELECT COUNT(*) FROM trajectories')
         return cur.fetchone()[0]
 
-    def get_flight_by_id(
+    def get_flight_by_source_id(
             self, source: DataSource, source_id: str
     ) -> Trajectory | None:
         # Return a single result from _retrieve's generator.
-        return next(self._retrieve([], source, ids=[source_id]), None)
+        return next(self._retrieve([], source, source_ids=[source_id]), None)
 
     def timestamp_ranges(self) -> list[tuple[int, int]]:
         cur = self.cursor()
@@ -265,21 +265,28 @@ class DB:
         # Batch the IDs to keep the length of SQL queries reasonable.
         for batch in batched(ids, 50):
             yield from self._retrieve(
-                pt_conditions, source, list(batch), callsign, orig, dest
+                pt_conditions, source, callsign, orig, dest, ids=list(batch)
             )
 
     def _retrieve(
             self,
             pt_conditions: list[tuple[str, object]],
             source: DataSource | None,
-            ids: str | list[str],
             callsign: str | None = None,
             orig: str | None = None,
-            dest: str | None = None
+            dest: str | None = None,
+            ids: str | list[str] | None = None,
+            source_ids: str | list[str] | None = None,
     ) -> Generator[Trajectory]:
-        # Normalize ID list parameter.
-        if not isinstance(ids, list):
+        # Normalize ID list parameters.
+        if ids is None:
+            ids = []
+        elif not isinstance(ids, list):
             ids = [ids]
+        if source_ids is None:
+            source_ids = []
+        elif not isinstance(source_ids, list):
+            source_ids = [source_ids]
 
         conditions = []
 
@@ -307,10 +314,13 @@ class DB:
             """SELECT source, source_id, transponder_id, orig, dest,
                       callsign, aircraft_type, points
                  FROM trajectories WHERE """ +
-                 self._build_sql_conditions(conditions, ids)
+                 self._build_sql_conditions(conditions, ids, source_ids)
         )
         traj_cur = self.cursor()
-        traj_cur.execute(traj_sql, tuple(p[1] for p in conditions) + tuple(ids))
+        traj_cur.execute(
+            traj_sql,
+            tuple(p[1] for p in conditions) + tuple(ids) + tuple(source_ids)
+        )
 
         for traj_rec in traj_cur:
             points = Point.unpack(bz2.decompress(traj_rec[7]))
@@ -323,13 +333,17 @@ class DB:
                 points=points, partial=partial
             )
 
-    def _build_sql_conditions(self, conditions, ids):
-        sql = ''
-        if len(conditions) > 0:
-            sql += ' AND '.join(p[0] for p in conditions)
-            sql += ' AND '
-        sql += 'id IN (' + ",".join("?" for _ in ids) + ')'
-        return sql
+    def _build_sql_conditions(self, conditions, ids, source_ids):
+        sql_conditions = [p[0] for p in conditions]
+        if len(ids) > 0:
+            sql_conditions.append(
+                'id IN (' + ','.join('?' for _ in ids) + ')'
+            )
+        if len(source_ids) > 0:
+            sql_conditions.append(
+                'source_id IN (' + ','.join('?' for _ in source_ids) + ')'
+            )
+        return ' AND '.join(sql_conditions)
 
     def _build_point_sql_conditions(self, conditions):
         if len(conditions) == 0:
