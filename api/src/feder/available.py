@@ -15,7 +15,7 @@ def available_days() -> list[tuple[date, date]]:
 
     days = sorted([
         datetime.strptime(os.path.basename(p)[:8], '%Y-%j').date().toordinal()
-        for p in glob.iglob(os.path.join(data_dir, '*/*.sqlite'))
+        for p in glob.iglob(os.path.join(data_dir, '????/*.sqlite'))
     ])
     ranges = []
     for _, g in itertools.groupby(enumerate(days), lambda x: x[0] - x[1]):
