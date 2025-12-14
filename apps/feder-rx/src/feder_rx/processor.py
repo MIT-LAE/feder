@@ -338,6 +338,11 @@ class Processor:
             # Build trajectory payload to send to ingester.
             payloads.append(Trajectory.build(self.source, source_id, fixes))
 
+        # Skip empty payloads: these can confuse the ingester, because we use
+        # empty trajectory batches to indicate end-of-day.
+        if len(payloads) == 0:
+            return
+
         # Send trajectory payload out over RabbitMQ, returning message number
         # for ACK/NACK processing.
         message_number = self.rmq.send(
