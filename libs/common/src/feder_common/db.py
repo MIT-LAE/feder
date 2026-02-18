@@ -84,7 +84,8 @@ class DB:
             data_dir: str,
             ref_date: datetime | date | int,
             must_exist: bool = True,
-            in_memory: bool = False
+            in_memory: bool = False,
+            read_only: bool = True
     ):
         self.data_dir = data_dir
         self.ref_date = DB.normalize_date(ref_date)
@@ -101,7 +102,12 @@ class DB:
         if not self.in_memory:
             os.makedirs(os.path.dirname(self.db_file()), exist_ok=True)
         self.created = self.in_memory or not exists
-        self.conn = sqlite3.connect(self.db_file())
+        if not read_only:
+            self.conn = sqlite3.connect(self.db_file())
+        else:
+            self.conn = sqlite3.connect(
+                f'file:{self.db_file()}?mode=ro', uri=True
+            )
 
     def db_file(self):
         if self.in_memory:

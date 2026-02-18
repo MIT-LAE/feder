@@ -11,7 +11,11 @@ logger = logging.getLogger(__name__)
 
 class WritableDB(DB):
     def __init__(self, data_dir: str, ref_date: datetime | date | int, in_memory: bool = False):
-        super().__init__(data_dir, ref_date, must_exist=False, in_memory=in_memory)
+        super().__init__(
+            data_dir, ref_date,
+            must_exist=False, in_memory=in_memory, read_only=False
+        )
+        self.conn.execute("PRAGMA journal_mode=WAL;")
         if self.created:
             self._create_db()
 
