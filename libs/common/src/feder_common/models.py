@@ -40,9 +40,9 @@ class Point:
     lat: float
     """Latitude in decimal degrees."""
     alt: float | None
-    """Altitude in meters, or None if not available."""
+    """Altitude in feet, or None if not available."""
     alt_gnss: float | None
-    """GNSS altitude in meters, or None if not available."""
+    """GNSS altitude in feet, or None if not available."""
     heading: float | None
     """Heading in degrees, or None if not available."""
     on_ground: bool
