@@ -34,8 +34,6 @@ class SpatialQueryType(Enum):
     """Find trajectories contained within a bounding box."""
 
 
-# TODO: Specify altitude units.
-
 @dataclass(slots=True)
 class BoundingBox:
     """Bounding box for spatial queries."""
@@ -48,9 +46,19 @@ class BoundingBox:
     max_lon: float | None = None
     """Maximum longitude."""
     min_alt: float | None = None
-    """Minimum altitude."""
+    """Minimum altitude in feet."""
     max_alt: float | None = None
-    """Maximum altitude."""
+    """Maximum altitude in feet."""
+
+    @property
+    def has_bounds(self) -> bool:
+        """Whether any bounds are set."""
+        return any(
+            b is not None for b in [
+                self.min_lat, self.max_lat, self.min_lon, self.max_lon,
+                self.min_alt, self.max_alt
+            ]
+        )
 
     def _check(self, query_type: SpatialQueryType):
         if self.min_lat is not None and self.max_lat is not None:
@@ -202,7 +210,9 @@ class DB:
             case TemporalQueryType.ENDS_IN:
                 time_condition('max', '>=', 'max', '<=')
 
-        if bounds is not None:
+        if bounds is None:
+            bounds = BoundingBox()
+        if bounds.has_bounds:
             if spatial_query_type is None:
                 raise ValueError(
                     'spatial_query_type must be specified if bounds are given'

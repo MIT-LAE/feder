@@ -39,7 +39,7 @@ class FlightQuery:
         self._max_time: datetime = max_time
 
         self._spatial_query_type: SpatialQueryType | None = None
-        self._bounds: BoundingBox | None = None
+        self._bounds: BoundingBox = BoundingBox()
 
         self._source: DataSource | None = None
         self._callsign: str | None = None
@@ -102,9 +102,38 @@ class FlightQuery:
         self._spatial_query_type = SpatialQueryType.WITHIN
         return self
 
-    def with_bounds(self, bounds: BoundingBox) -> Self:
-        """Add spatial bounds to the query."""
-        self._bounds = bounds
+    def with_bounds(
+            self,
+            bounds: BoundingBox | None = None,
+            min_lat: float | None = None,
+            max_lat: float | None = None,
+            min_lon: float | None = None,
+            max_lon: float | None = None,
+            min_alt: float | None = None,
+            max_alt: float | None = None
+
+    ) -> Self:
+        """Add spatial bounds to the query.
+
+        Bounds can be specified either as a `BoundingBox` value, or as
+        individual minimum or maximum limits on latidude, longitude and
+        altitude. If both a `BoundingBox` and individual limits are provided,
+        the individual limits will override the corresponding values in the
+        `BoundingBox`."""
+        if bounds is not None:
+            self._bounds = bounds
+        if min_lat is not None:
+            self._bounds.min_lat = min_lat
+        if max_lat is not None:
+            self._bounds.max_lat = max_lat
+        if min_lon is not None:
+            self._bounds.min_lon = min_lon
+        if max_lon is not None:
+            self._bounds.max_lon = max_lon
+        if min_alt is not None:
+            self._bounds.min_alt = min_alt
+        if max_alt is not None:
+            self._bounds.max_alt = max_alt
         return self
 
     def with_callsign(self, callsign: str) -> Self:
