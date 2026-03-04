@@ -9,6 +9,7 @@ dependencies = []
 [dependency-groups]
 dev = [
     "bump-my-version>=1.1.1",
+    "cartopy>=0.25.0",
     "hypothesis>=6.131.3",
     "ipykernel>=6.29.5",
     "matplotlib>=3.10.1",
