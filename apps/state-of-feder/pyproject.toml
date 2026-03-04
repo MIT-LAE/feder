@@ -1,6 +1,6 @@
 [project]
 name = "state-of-feder"
-version = "0.1.25"
+version = "0.2.0"
 description = "Feder status email sender"
 readme = "README.md"
 authors = [
