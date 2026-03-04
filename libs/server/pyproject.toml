@@ -1,6 +1,6 @@
 [project]
 name = "feder-server"
-version = "0.2.0"
+version = "0.2.1"
 description = "Library for shared server-side code in Feder"
 readme = "README.md"
 authors = [
