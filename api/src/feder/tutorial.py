@@ -135,13 +135,16 @@ With this "builder" approach, we can also make the same query in one go, like
 this:
 
 ``` python
-bounds = BoundingBox(min_lat=38, max_lat=46, min_lon=-100, max_lon=-60)
 query = (
     FlightQuery(t1, t2).time_starts_in().
     with_orig('KBOS').
-    with_bounds(bounds).spatially_within()
+    with_bounds(min_lat=38, max_lat=46, min_lon=-100, max_lon=-60).
+    spatially_within()
 )
 ```
+
+(The `bounds` method takes either a `BoundingBox` or a sequence of keyword
+arguments for bounding box parameters.)
 
 The above queries will retrieve complete trajectories matching the given
 criteria. In some cases, you may want to filter the trajectory waypoints to
@@ -275,6 +278,47 @@ for flight in query.run():
 # KBOS KDCA 1:18:25
 # KBOS KIND 2:11:43
 # KBOS KIND 2:11:43
+```
+
+## Combining queries
+
+Here is a slightly more complex example. Suppose that we want to look at
+flights crossing a region in the horizontal (defined by a bounding box), but we
+want to split the trajectories into flight level "slices".
+
+First we choose a time range and a bounding box for the region we're interested
+in:
+
+```python
+TSTART = datetime(2025, 5, 22, 0, 0, tzinfo=UTC)
+TEND = TSTART + timedelta(hours=24)
+
+bbox = BoundingBox(min_lon=-100, max_lon=-80, min_lat=30, max_lat=45)
+```
+
+Now we start with a query without altitude information. We use the
+`filter_waypoints` method so that we only get the trajectory points within the
+additional altitude bounds we're going to impose.
+
+```python
+query = (
+    FlightQuery(TSTART, TEND).time_starts_in().
+        with_bounds(bounds=bbox).spatially_crosses().
+        filter_waypoints()
+)
+```
+
+Now we can iterate over flight level "slices" of the trajectories by adding
+altitude bounds. Here, we don't do anything useful with the information, we
+just print out the number of flights and total number of trajectory points in
+each slice:
+
+```python
+fl_boundaries = np.arange(250, 410, 10)
+for fl_min, fl_max in zip(fl_boundaries[:-1], fl_boundaries[1:]):
+    sub_query = query.with_bounds(min_alt=fl_min * 100, max_alt=fl_max * 100)
+    flights = list(sub_query.run())
+    print(fl_min, fl_max, len(flights), sum(len(f.points) for f in flights))
 ```
 
 """

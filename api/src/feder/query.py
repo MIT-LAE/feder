@@ -1,6 +1,9 @@
+from __future__ import annotations
+
+import dataclasses
 from datetime import datetime, timedelta
 import os
-from typing import Generator, Self
+from typing import Generator
 
 from feder.common import (
     DB, DataSource, BoundingBox, TemporalQueryType, SpatialQueryType, Trajectory
@@ -48,59 +51,78 @@ class FlightQuery:
 
         self._filter_waypoints: bool = False
 
-    def time_intersects(self) -> Self:
+    def _clone(self) -> FlightQuery:
+        """Create a copy of the query. @private"""
+        clone = FlightQuery(self._min_time, self._max_time)
+        clone._temporal_query_type = self._temporal_query_type
+        clone._spatial_query_type = self._spatial_query_type
+        clone._bounds = dataclasses.replace(self._bounds)
+        clone._source = self._source
+        clone._callsign = self._callsign
+        clone._orig = self._orig
+        clone._dest = self._dest
+        clone._filter_waypoints = self._filter_waypoints
+        return clone
+
+    def time_intersects(self) -> FlightQuery:
         """Set the temporal query type to "intersects".
 
         Trajectories are included if they have any points with timestamps
         within the query time range.
         """
-        self._temporal_query_type = TemporalQueryType.INTERSECTS
-        return self
+        retval = self._clone()
+        retval._temporal_query_type = TemporalQueryType.INTERSECTS
+        return retval
 
-    def time_within(self) -> Self:
+    def time_within(self) -> FlightQuery:
         """Set the temporal query type to "within".
 
         Trajectories are included if all their points have timestamps within
         the query time range.
         """
-        self._temporal_query_type = TemporalQueryType.WITHIN
-        return self
+        retval = self._clone()
+        retval._temporal_query_type = TemporalQueryType.WITHIN
+        return retval
 
-    def time_starts_in(self) -> Self:
+    def time_starts_in(self) -> FlightQuery:
         """Set the temporal query type to "starts in".
 
         Trajectories are included if their first point has a timestamp within
         the query time range.
         """
-        self._temporal_query_type = TemporalQueryType.STARTS_IN
-        return self
+        retval = self._clone()
+        retval._temporal_query_type = TemporalQueryType.STARTS_IN
+        return retval
 
-    def time_ends_in(self) -> Self:
+    def time_ends_in(self) -> FlightQuery:
         """Set the temporal query type to "ends in".
 
         Trajectories are included if their last point has a timestamp within
         the query time range.
         """
-        self._temporal_query_type = TemporalQueryType.ENDS_IN
-        return self
+        retval = self._clone()
+        retval._temporal_query_type = TemporalQueryType.ENDS_IN
+        return retval
 
-    def spatially_crosses(self) -> Self:
+    def spatially_crosses(self) -> FlightQuery:
         """Set the spatial query type to "crosses".
 
         Trajectories are included if any of their points lies within the
         spatial bounding box.
         """
-        self._spatial_query_type = SpatialQueryType.CROSSES
-        return self
+        retval = self._clone()
+        retval._spatial_query_type = SpatialQueryType.CROSSES
+        return retval
 
-    def spatially_within(self) -> Self:
+    def spatially_within(self) -> FlightQuery:
         """Set the spatial query type to "within".
 
         Trajectories are included if all of their points lie within the
         spatial bounding box.
         """
-        self._spatial_query_type = SpatialQueryType.WITHIN
-        return self
+        retval = self._clone()
+        retval._spatial_query_type = SpatialQueryType.WITHIN
+        return retval
 
     def with_bounds(
             self,
@@ -111,8 +133,7 @@ class FlightQuery:
             max_lon: float | None = None,
             min_alt: float | None = None,
             max_alt: float | None = None
-
-    ) -> Self:
+    ) -> FlightQuery:
         """Add spatial bounds to the query.
 
         Bounds can be specified either as a `BoundingBox` value, or as
@@ -120,38 +141,42 @@ class FlightQuery:
         altitude. If both a `BoundingBox` and individual limits are provided,
         the individual limits will override the corresponding values in the
         `BoundingBox`."""
+        retval = self._clone()
         if bounds is not None:
-            self._bounds = bounds
+            retval._bounds = bounds
         if min_lat is not None:
-            self._bounds.min_lat = min_lat
+            retval._bounds.min_lat = float(min_lat)
         if max_lat is not None:
-            self._bounds.max_lat = max_lat
+            retval._bounds.max_lat = float(max_lat)
         if min_lon is not None:
-            self._bounds.min_lon = min_lon
+            retval._bounds.min_lon = float(min_lon)
         if max_lon is not None:
-            self._bounds.max_lon = max_lon
+            retval._bounds.max_lon = float(max_lon)
         if min_alt is not None:
-            self._bounds.min_alt = min_alt
+            retval._bounds.min_alt = float(min_alt)
         if max_alt is not None:
-            self._bounds.max_alt = max_alt
-        return self
+            retval._bounds.max_alt = float(max_alt)
+        return retval
 
-    def with_callsign(self, callsign: str) -> Self:
+    def with_callsign(self, callsign: str) -> FlightQuery:
         """Restrict the query to a specific callsign."""
-        self._callsign = callsign
-        return self
+        retval = self._clone()
+        retval._callsign = callsign
+        return retval
 
-    def with_orig(self, orig: str) -> Self:
+    def with_orig(self, orig: str) -> FlightQuery:
         """Restrict the query to a specific origin airport code."""
-        self._orig = orig
-        return self
+        retval = self._clone()
+        retval._orig = orig
+        return retval
 
-    def with_dest(self, dest: str) -> Self:
+    def with_dest(self, dest: str) -> FlightQuery:
         """Restrict the query to a specific destination airport code."""
-        self._dest = dest
-        return self
+        retval = self._clone()
+        retval._dest = dest
+        return retval
 
-    def from_source(self, source: DataSource) -> Self:
+    def from_source(self, source: DataSource) -> FlightQuery:
         """Restrict the query to a specific data source.
 
         For most time periods, only one data source is in use, but there are
@@ -159,10 +184,11 @@ class FlightQuery:
         another. You can narrow down your query to a single source using this
         method. Otherwise you receive all trajectories from all sources in use
         during the time period of your query."""
-        self._source = source
-        return self
+        retval = self._clone()
+        retval._source = source
+        return retval
 
-    def filter_waypoints(self) -> Self:
+    def filter_waypoints(self) -> FlightQuery:
         """Filter waypoints in the returned trajectories.
 
         Feder normally returns complete trajectories, including all waypoints.
@@ -171,8 +197,9 @@ class FlightQuery:
         particular, only waypoints within the specified time range and/or
         bounding box will be included.
         """
-        self._filter_waypoints = True
-        return self
+        retval = self._clone()
+        retval._filter_waypoints = True
+        return retval
 
     def run(self) -> Generator[Trajectory]:
         """Run the query and yield matching trajectories."""
