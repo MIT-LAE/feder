@@ -9,7 +9,7 @@ from enum import Enum, auto
 from itertools import batched
 import os
 import sqlite3
-from typing import Generator
+from typing import Callable, Generator
 
 from .models import DataSource, Point, Trajectory
 
@@ -210,6 +210,10 @@ class DB:
             case TemporalQueryType.ENDS_IN:
                 time_condition('max', '>=', 'max', '<=')
 
+        # Callable for post-bounding box filtering checking, used for spatially
+        # crossing queries.
+        points_check = None
+
         if bounds is None:
             bounds = BoundingBox()
         if bounds.has_bounds:
@@ -221,30 +225,45 @@ class DB:
 
             match spatial_query_type:
                 case SpatialQueryType.CROSSES:
+                    # Build up conditions for trajectory point checking: the ID
+                    # conditions only filter on bounding box overlap, so we
+                    # need to do an additional check for spatially crossing
+                    # queries to make sure that the query bounds really do
+                    # contain some point in the trajectory.
+                    conds = []
                     if bounds.min_lat is not None:
                         id_conditions.append(('max_latitude >= ?', bounds.min_lat))
+                        conds.append(lambda pt: pt.lat >= bounds.min_lat)
                         if filter_waypoints:
                             pt_conditions.append(('lat >= ?', bounds.min_lat))
                     if bounds.max_lat is not None:
                         id_conditions.append(('min_latitude <= ?', bounds.max_lat))
+                        conds.append(lambda pt: pt.lat <= bounds.max_lat)
                         if filter_waypoints:
                             pt_conditions.append(('lat <= ?', bounds.max_lat))
                     if bounds.min_lon is not None:
                         id_conditions.append(('max_longitude >= ?', bounds.min_lon))
+                        conds.append(lambda pt: pt.lon >= bounds.min_lon)
                         if filter_waypoints:
                             pt_conditions.append(('lon >= ?', bounds.min_lon))
                     if bounds.max_lon is not None:
                         id_conditions.append(('min_longitude <= ?', bounds.max_lon))
+                        conds.append(lambda pt: pt.lon <= bounds.max_lon)
                         if filter_waypoints:
                             pt_conditions.append(('lon <= ?', bounds.max_lon))
                     if bounds.min_alt is not None:
                         id_conditions.append(('max_altitude >= ?', bounds.min_alt))
+                        conds.append(lambda pt: pt.alt >= bounds.min_alt)
                         if filter_waypoints:
                             pt_conditions.append(('alt >= ?', bounds.min_alt))
                     if bounds.max_alt is not None:
                         id_conditions.append(('min_altitude <= ?', bounds.max_alt))
+                        conds.append(lambda pt: pt.alt <= bounds.max_alt)
                         if filter_waypoints:
                             pt_conditions.append(('alt <= ?', bounds.max_alt))
+                    def points_checker(pts: list[Point]) -> bool:
+                        return any(all(cond(pt) for cond in conds) for pt in pts)
+                    points_check = points_checker
                 case SpatialQueryType.WITHIN:
                     if bounds.min_lat is not None and bounds.max_lat is not None:
                         id_conditions.append(('min_latitude >= ?', bounds.min_lat))
@@ -281,7 +300,8 @@ class DB:
         # Batch the IDs to keep the length of SQL queries reasonable.
         for batch in batched(ids, 50):
             yield from self._retrieve(
-                pt_conditions, source, callsign, orig, dest, ids=list(batch)
+                pt_conditions, source, callsign, orig, dest,
+                ids=list(batch), points_check=points_check
             )
 
     def _retrieve(
@@ -293,6 +313,7 @@ class DB:
             dest: str | None = None,
             ids: str | list[str] | None = None,
             source_ids: str | list[str] | None = None,
+            points_check: Callable[[list[Point]], bool] | None = None,
     ) -> Generator[Trajectory]:
         # Normalize ID list parameters.
         if ids is None:
@@ -340,6 +361,9 @@ class DB:
 
         for traj_rec in traj_cur:
             points = Point.unpack(bz2.decompress(traj_rec[7]))
+            if points_check is not None:
+                if not points_check(points):
+                    continue
             if pt_filter is not None:
                 points = list(filter(pt_filter, points))
             yield Trajectory(
