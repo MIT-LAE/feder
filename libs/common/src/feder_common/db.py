@@ -186,7 +186,7 @@ class DB:
             temporal_query_type: TemporalQueryType = TemporalQueryType.INTERSECTS,
             spatial_query_type: SpatialQueryType | None = None,
             filter_waypoints: bool = False
-    ) -> Generator[Trajectory]:
+    ) -> Generator[Trajectory, None, None]:
         id_conditions = []
         pt_conditions = []
 
@@ -314,7 +314,7 @@ class DB:
             ids: str | list[str] | None = None,
             source_ids: str | list[str] | None = None,
             points_check: Callable[[list[Point]], bool] | None = None,
-    ) -> Generator[Trajectory]:
+    ) -> Generator[Trajectory, None, None]:
         # Normalize ID list parameters.
         if ids is None:
             ids = []

@@ -105,7 +105,7 @@ class FileSource(Source):
             raise ValueError('no file globs provided for file data source')
 
     @abstractmethod
-    def process_file(self, filename: str) -> Generator[Command]:
+    def process_file(self, filename: str) -> Generator[Command, None, None]:
         ...
 
     def run(self):

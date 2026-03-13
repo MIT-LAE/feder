@@ -201,7 +201,7 @@ class FlightQuery:
         retval._filter_waypoints = True
         return retval
 
-    def run(self) -> Generator[Trajectory]:
+    def run(self) -> Generator[Trajectory, None, None]:
         """Run the query and yield matching trajectories."""
 
         data_dir = os.environ.get('FEDER_DATA_DIR')
