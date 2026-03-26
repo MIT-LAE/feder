@@ -28,6 +28,10 @@ jobs:
         run: uv sync --locked --all-extras --dev
 
       - name: Start RabbitMQ server
+        uses: namoshek/rabbitmq-github-action@v1
+        with:
+          version: '4.0'
+          container-name: 'rabbitmq'
 
       - name: Configure RabbitMQ
         run: ./scripts/dev-setup-rabbitmq
