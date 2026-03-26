@@ -1,0 +1,36 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  tests:
+    name: Pytest
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.7.13"
+
+      - name: Set up Python 3.12.13
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12.13"
+
+      - name: Install project & dependencies
+        run: uv sync --locked --all-extras --dev
+
+      - name: Start RabbitMQ server
+
+      - name: Configure RabbitMQ
+        run: ./scripts/dev-setup-rabbitmq
+
+      - name: Run Pytest
+        run: uv run pytest tests/
