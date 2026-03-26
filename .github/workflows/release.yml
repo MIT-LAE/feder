@@ -9,26 +9,14 @@ permissions:
   contents: write   # required to create GitHub Releases
 
 jobs:
+  tests:
+    uses: ./.github/workflows/test-reusable.yml
+
   release:
-    name: Release
+    needs: tests
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "0.7.13"
-
-      - name: Set up Python 3.12.13
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.12.13"
-
-      - name: Install project & dependencies
-        run: uv sync --locked --all-extras --dev
-
       - name: Verify tag matches version
         run: |
           uv run python - <<'EOF'
@@ -38,19 +26,6 @@ jobs:
               version = tomllib.load(f)["project"]["version"]
           assert tag == version, f"Tag {tag} != version {version}"
           EOF
-
-      - name: Start RabbitMQ server
-        uses: namoshek/rabbitmq-github-action@v1
-        with:
-          version: '4.0'
-          ports: '5672 5672'
-          container-name: 'rabbitmq'
-
-      - name: Configure RabbitMQ
-        run: ./scripts/dev-setup-rabbitmq
-
-      - name: Run Pytest
-        run: uv run pytest tests/
 
       - name: Build distributions
         run: uv build --package feder

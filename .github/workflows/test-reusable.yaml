@@ -1,0 +1,64 @@
+name: Tests
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: "3.12.13"
+
+jobs:
+  tests:
+    name: Pytest
+    runs-on: ubuntu-latest
+
+    services:
+      rabbitmq:
+        image: rabbitmq:4.0-management
+        ports:
+          - 5672:5672
+          - 15672:15672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for RabbitMQ
+        run: |
+          for i in {1..20}; do
+            nc -z localhost 5672 && exit 0
+            sleep 1
+          done
+          exit 1
+
+      - name: Setup RabbitMQ (queues, users, etc.)
+        run: |
+          docker exec ${{ job.services.rabbitmq.id }} \
+            rabbitmqctl add_vhost feder
+          docker exec ${{ job.services.rabbitmq.id }} \
+            rabbitmqctl add_user feder feder-test
+          docker exec ${{ job.services.rabbitmq.id }} \
+            rabbitmqctl set_permissions --vhost feder feder '.*' '.*' '.*'
+          docker exec ${{ job.services.rabbitmq.id }} \
+            rabbitmqctl set_user_tags --vhost feder feder administrator
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.7.13"
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install project & dependencies
+        run: uv sync --locked --all-extras --dev
+
+      - name: Run Pytest
+        run: uv run pytest tests/
