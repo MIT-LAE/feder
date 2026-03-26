@@ -18,6 +18,10 @@ jobs:
     needs: tests
     runs-on: ubuntu-latest
 
+    permissions:
+      id-token: write   # REQUIRED for OIDC
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
 
