@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   tests:
-    uses: ./.github/workflows/test-reusable.yml
+    uses: ./.github/workflows/test-reusable.yaml
 
   release:
     needs: tests
