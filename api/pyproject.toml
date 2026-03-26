@@ -1,13 +1,14 @@
 [project]
 name = "feder"
 version = "0.2.2"
-description = "Feder client API"
+description = "Feder flight data system client API"
 readme = "README.md"
 authors = [
     { name = "Ian Ross", email = "iross@mit.edu" }
 ]
 requires-python = ">=3.12"
 dependencies = []
+readme = "README.md"
 
 [build-system]
 requires = ["hatchling"]
