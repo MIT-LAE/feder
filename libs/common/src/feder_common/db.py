@@ -284,9 +284,6 @@ class DB:
                             pt_conditions.append(('alt >= ?', bounds.min_alt))
                             pt_conditions.append(('alt <= ?', bounds.max_alt))
 
-        if source is not None:
-            id_conditions.append(('source = ?', source.value))
-
         id_sql = (
             'SELECT id FROM trajectory_index WHERE ' +
             ' AND '.join(p[0] for p in id_conditions)
