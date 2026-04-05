@@ -58,7 +58,7 @@ jobs:
           python-version: ${{ inputs.python-version }}
 
       - name: Install project & dependencies
-        run: uv sync --all-packages --locked --all-extras --dev
+        run: uv sync --all-packages --all-extras --dev
 
       - name: Run Pytest
         run: uv run pytest tests/
