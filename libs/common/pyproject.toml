@@ -1,6 +1,6 @@
 [project]
 name = "feder-common"
-version = "0.2.3"
+version = "0.2.4"
 description = "Library for Feder shared between API and server processes"
 readme = "README.md"
 authors = [
