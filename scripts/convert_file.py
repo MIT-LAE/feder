@@ -34,6 +34,12 @@ def convert(src_path: str, dst_path: str) -> None:
         )
         dst.commit()
 
+        # Reclaim free pages left by replacing smaller bz2 blobs with larger
+        # lz4 blobs.  Must run outside any transaction.
+        dst.isolation_level = None
+        dst.execute('VACUUM')
+        dst.isolation_level = ''
+
         integrity = dst.execute('PRAGMA integrity_check').fetchone()[0]
         if integrity != 'ok':
             raise RuntimeError(f'integrity_check failed: {integrity}')
