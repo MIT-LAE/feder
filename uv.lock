@@ -481,6 +481,12 @@ source = { editable = "api" }
 name = "feder-common"
 version = "0.2.4"
 source = { editable = "libs/common" }
+dependencies = [
+    { name = "numpy" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "numpy", specifier = ">=1.24" }]
 
 [[package]]
 name = "feder-ingest"

@@ -7,9 +7,19 @@ from enum import Enum
 from operator import attrgetter
 from typing import Self
 
-from .utils import (
-    Packer, Unpacker, encode_opt_float, decode_opt_float, milli
-)
+import numpy as np
+
+from .utils import Packer, Unpacker, encode_opt_float, decode_opt_float
+
+_POINT_DTYPE = np.dtype([
+    ('time',     '>u4'),
+    ('lon',      '>f8'),
+    ('lat',      '>f8'),
+    ('alt',      '>f8'),
+    ('alt_gnss', '>f8'),
+    ('heading',  '>f8'),
+    ('on_ground', '?'),
+])
 
 
 class DataSource(Enum):
@@ -78,18 +88,34 @@ class Point:
         if unpacker is None:
             unpacker = Unpacker(data)
         npoints = unpacker('>H')
-        points = []
-        for i in range(npoints):
-            pt = unpacker(cls._POINT_FORMAT, multiple=True)
-            points.append(cls(
-                time=datetime.fromtimestamp(pt[0], tz=timezone.utc),
-                lon=milli(pt[1]), lat=milli(pt[2]),
-                alt=decode_opt_float(milli(pt[3])),
-                alt_gnss=decode_opt_float(milli(pt[4])),
-                heading=decode_opt_float(milli(pt[5])),
-                on_ground=pt[6]
-            ))
-        return points
+        if npoints == 0:
+            return []
+        raw = unpacker._buf.read(npoints * _POINT_DTYPE.itemsize)
+        return cls._array_to_points(np.frombuffer(raw, dtype=_POINT_DTYPE, count=npoints))
+
+    @classmethod
+    def _unpack_blob(cls, data: bytes) -> np.ndarray:
+        """Parse a decompressed point blob to a numpy array. @private"""
+        npoints = int.from_bytes(data[:2], byteorder='big')
+        if npoints == 0:
+            return np.zeros(0, dtype=_POINT_DTYPE)
+        return np.frombuffer(data, dtype=_POINT_DTYPE, offset=2, count=npoints)
+
+    @classmethod
+    def _array_to_points(cls, arr: np.ndarray) -> list[Self]:
+        """Convert a numpy point array to a list of Point objects. @private"""
+        return [
+            cls(
+                time=datetime.fromtimestamp(int(row['time']), tz=timezone.utc),
+                lon=float(row['lon']),
+                lat=float(row['lat']),
+                alt=decode_opt_float(float(row['alt'])),
+                alt_gnss=decode_opt_float(float(row['alt_gnss'])),
+                heading=decode_opt_float(float(row['heading'])),
+                on_ground=bool(row['on_ground'])
+            )
+            for row in arr
+        ]
 
 
 @dataclass(slots=True)
