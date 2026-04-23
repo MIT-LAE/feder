@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, date, timezone
 from enum import Enum, auto
 from itertools import batched
+import math
 import os
 import sqlite3
 from typing import Callable, Generator
