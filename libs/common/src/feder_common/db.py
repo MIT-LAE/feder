@@ -48,6 +48,19 @@ def _process_blob(
     return arr
 
 
+def _process_chunk(
+        rows: list,
+        points_check: Callable[[np.ndarray], bool] | None,
+        pt_filter: Callable[[np.ndarray], np.ndarray] | None,
+) -> list[tuple]:
+    results = []
+    for row in rows:
+        arr = _process_blob(row[7], points_check, pt_filter)
+        if arr is not None:
+            results.append((row, Point._array_to_points(arr)))
+    return results
+
+
 class TemporalQueryType(Enum):
     """Temporal query types."""
     INTERSECTS = auto()
@@ -400,18 +413,27 @@ class DB:
         )
 
         rows = list(traj_cur)
-        arrays = _pool.map(
-            lambda row: _process_blob(row[7], points_check, pt_filter), rows
-        )
-        for traj_rec, arr in zip(rows, arrays):
-            if arr is None:
-                continue
-            yield Trajectory(
-                source=DataSource(traj_rec[0]), source_id=traj_rec[1],
-                transponder_id=traj_rec[2], orig=traj_rec[3], dest=traj_rec[4],
-                callsign=traj_rec[5], aircraft_type=traj_rec[6],
-                points=Point._array_to_points(arr), partial=partial
-            )
+        if not rows:
+            return
+
+        # Split into at most N_WORKERS chunks so thread-pool overhead is O(workers)
+        # rather than O(trajectories).  _array_to_points runs inside the threads too.
+        n_chunks = min(_N_WORKERS, len(rows))
+        chunk_size = -(-len(rows) // n_chunks)  # ceiling division
+        chunks = [rows[i:i + chunk_size] for i in range(0, len(rows), chunk_size)]
+
+        futures = [
+            _pool.submit(_process_chunk, chunk, points_check, pt_filter)
+            for chunk in chunks
+        ]
+        for future in futures:
+            for traj_rec, points in future.result():
+                yield Trajectory(
+                    source=DataSource(traj_rec[0]), source_id=traj_rec[1],
+                    transponder_id=traj_rec[2], orig=traj_rec[3], dest=traj_rec[4],
+                    callsign=traj_rec[5], aircraft_type=traj_rec[6],
+                    points=points, partial=partial
+                )
 
     def _build_sql_conditions(self, conditions, ids, source_ids):
         sql_conditions = [p[0] for p in conditions]
