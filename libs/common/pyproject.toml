@@ -7,7 +7,10 @@ authors = [
     { name = "Ian Ross", email = "iross@mit.edu" }
 ]
 requires-python = ">=3.12"
-dependencies = ["numpy>=1.24"]
+dependencies = [
+    "lz4>=4.4.5",
+    "numpy>=1.24",
+]
 
 [build-system]
 requires = ["hatchling"]

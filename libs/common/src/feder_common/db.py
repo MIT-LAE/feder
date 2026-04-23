@@ -2,7 +2,6 @@
 use only, but the `QueryType` enumeration is needed for setting the spatial
 overlap characteristics of queries."""
 
-import bz2
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, date, timezone
@@ -12,6 +11,7 @@ import os
 import sqlite3
 from typing import Callable, Generator
 
+import lz4.frame
 import numpy as np
 
 from .models import DataSource, Point, Trajectory
@@ -26,12 +26,21 @@ _pool = ThreadPoolExecutor(max_workers=_N_WORKERS)
 _ID_BATCH_SIZE = 5000
 
 
+_BLOB_VERSION = 0x01
+
+
 def _process_blob(
         blob: bytes,
         points_check: Callable[[np.ndarray], bool] | None,
         pt_filter: Callable[[np.ndarray], np.ndarray] | None,
 ) -> np.ndarray | None:
-    arr = Point._unpack_blob(bz2.decompress(blob))
+    version = blob[0]
+    if version != _BLOB_VERSION:
+        raise ValueError(
+            f'unsupported blob version {version:#04x} — '
+            'is the feder library up to date?'
+        )
+    arr = Point._unpack_blob(lz4.frame.decompress(blob[1:]))
     if points_check is not None and not points_check(arr):
         return None
     if pt_filter is not None:
