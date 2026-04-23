@@ -419,7 +419,7 @@ class DB:
         # Split into at most N_WORKERS chunks so thread-pool overhead is O(workers)
         # rather than O(trajectories).  _array_to_points runs inside the threads too.
         n_chunks = min(_N_WORKERS, len(rows))
-        chunk_size = -(-len(rows) // n_chunks)  # ceiling division
+        chunk_size = math.ceil(len(rows) / n_chunks)
         chunks = [rows[i:i + chunk_size] for i in range(0, len(rows), chunk_size)]
 
         futures = [
