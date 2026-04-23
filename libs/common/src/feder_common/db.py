@@ -3,10 +3,10 @@ use only, but the `QueryType` enumeration is needed for setting the spatial
 overlap characteristics of queries."""
 
 import bz2
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, date, timezone
 from enum import Enum, auto
-from itertools import batched
 import os
 import sqlite3
 from typing import Callable, Generator
@@ -15,6 +15,22 @@ import numpy as np
 
 from .models import DataSource, Point, Trajectory
 from .utils import MISSING_VALUE
+
+_N_WORKERS = min(8, os.cpu_count() or 4)
+_pool = ThreadPoolExecutor(max_workers=_N_WORKERS)
+
+
+def _process_blob(
+        blob: bytes,
+        points_check: Callable[[np.ndarray], bool] | None,
+        pt_filter: Callable[[np.ndarray], np.ndarray] | None,
+) -> np.ndarray | None:
+    arr = Point._unpack_blob(bz2.decompress(blob))
+    if points_check is not None and not points_check(arr):
+        return None
+    if pt_filter is not None:
+        arr = pt_filter(arr)
+    return arr
 
 
 class TemporalQueryType(Enum):
@@ -307,11 +323,10 @@ class DB:
         cur.execute(id_sql, id_parameters)
         ids = [t[0] for t in cur.fetchall()]
 
-        # Batch the IDs to keep the length of SQL queries reasonable.
-        for batch in batched(ids, 50):
+        if ids:
             yield from self._retrieve(
                 pt_conditions, source, callsign, orig, dest,
-                ids=list(batch), points_check=points_check
+                ids=ids, points_check=points_check
             )
 
     def _retrieve(
@@ -369,13 +384,13 @@ class DB:
             tuple(p[1] for p in conditions) + tuple(ids) + tuple(source_ids)
         )
 
-        for traj_rec in traj_cur:
-            arr = Point._unpack_blob(bz2.decompress(traj_rec[7]))
-            if points_check is not None:
-                if not points_check(arr):
-                    continue
-            if pt_filter is not None:
-                arr = pt_filter(arr)
+        rows = list(traj_cur)
+        arrays = _pool.map(
+            lambda row: _process_blob(row[7], points_check, pt_filter), rows
+        )
+        for traj_rec, arr in zip(rows, arrays):
+            if arr is None:
+                continue
             yield Trajectory(
                 source=DataSource(traj_rec[0]), source_id=traj_rec[1],
                 transponder_id=traj_rec[2], orig=traj_rec[3], dest=traj_rec[4],
