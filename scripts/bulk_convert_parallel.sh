@@ -17,6 +17,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJ_DIR=$(dirname ${SCRIPT_DIR})
 
 if ! command -v parallel &>/dev/null; then
     echo "Error: GNU Parallel is not installed." >&2
@@ -49,7 +50,7 @@ find "$SRC_DIR" -name '*.sqlite' | sort | \
         --bar \
         --joblog logs/parallel_convert.log \
         --halt soon,fail=1 \
-        'mkdir -p "$(dirname {2})" && uv run python '"$SCRIPT_DIR"'/convert_file.py {1} {2}'
+        'mkdir -p "$(dirname {2})" && uv --project '$PROJ_DIR' run python '"$SCRIPT_DIR"'/convert_file.py {1} {2}'
 
 # Summarise failures from the job log (exit value column is 7th field).
 FAILED=$(awk 'NR>1 && $7 != 0' logs/parallel_convert.log | wc -l)
