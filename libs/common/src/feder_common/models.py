@@ -11,6 +11,9 @@ import numpy as np
 
 from .utils import Packer, Unpacker, encode_opt_float, decode_opt_float
 
+# Numpy structured dtype mirroring Point._POINT_FORMAT ('>Lddddd?').
+# Used by Point._unpack_blob and Point.unpack to parse a full decompressed
+# point blob in a single np.frombuffer call instead of a per-point Python loop.
 _POINT_DTYPE = np.dtype([
     ('time',     '>u4'),
     ('lon',      '>f8'),
