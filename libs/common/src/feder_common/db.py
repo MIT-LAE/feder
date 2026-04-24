@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, date, timezone
 from enum import Enum, auto
+from itertools import batched
 import os
 import sqlite3
 from typing import Callable, Generator
@@ -18,6 +19,11 @@ from .utils import MISSING_VALUE
 
 _N_WORKERS = min(8, os.cpu_count() or 4)
 _pool = ThreadPoolExecutor(max_workers=_N_WORKERS)
+
+# Maximum number of trajectory IDs sent in a single `IN (?,?,...)` clause.
+# Keeps the total bind-parameter count below SQLite's default
+# SQLITE_MAX_VARIABLE_NUMBER (32766 on modern builds).
+_ID_BATCH_SIZE = 5000
 
 
 def _process_blob(
@@ -323,10 +329,10 @@ class DB:
         cur.execute(id_sql, id_parameters)
         ids = [t[0] for t in cur.fetchall()]
 
-        if ids:
+        for batch in batched(ids, _ID_BATCH_SIZE):
             yield from self._retrieve(
                 pt_conditions, source, callsign, orig, dest,
-                ids=ids, points_check=points_check
+                ids=list(batch), points_check=points_check
             )
 
     def _retrieve(
