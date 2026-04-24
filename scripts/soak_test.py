@@ -1,94 +1,80 @@
 #!/usr/bin/env python3
-"""Continuous equivalence soak test: run random FlightQuery calls in a loop
-and assert that results from the bz2 and lz4 directories are identical.
+"""Continuous equivalence soak test: run random FlightQuery calls in a
+loop and assert that bz2 and lz4 return identical results.  Intended to
+run for ~48 hours before the cutover; progress is printed every 100
+queries.
 
-Run for ~48 hours before scheduling the cutover.  Kill with Ctrl-C.
-Progress is printed every 100 queries.
+Required environment variables:
+
+    BZ2_CODE_DIR  BZ2_DATA_DIR  LZ4_CODE_DIR  LZ4_DATA_DIR
 
 Usage:
-    python scripts/soak_test.py <bz2_dir> <lz4_dir> [--seed 42]
+    python scripts/soak_test.py [--seed 42]
 """
 
+from __future__ import annotations
+
 import argparse
-import os
+import math
 import random
-import signal
 import sys
 import time
 from datetime import datetime, timedelta, UTC
 
-# ── query generation ──────────────────────────────────────────────────────────
+from _query_harness import ComparisonHarness
 
-# Adjust to the actual date range present in both directories.
+
 _EPOCH = datetime(2025, 1, 1, tzinfo=UTC)
 _DATA_DAYS = 365
 
+# Bounding boxes model the primary use case: regions around ground-based
+# cameras covering their effective field of view.  Width and height are
+# each drawn independently from [10 km, 200 km].
+_KM_PER_DEG_LAT = 111.0
+_MIN_BOX_KM = 10.0
+_MAX_BOX_KM = 200.0
 
-def random_query_params(rng: random.Random) -> dict:
-    start = _EPOCH + timedelta(
+
+def random_query(rng: random.Random) -> tuple[datetime, datetime, list, dict]:
+    t1 = _EPOCH + timedelta(
         days=rng.randint(0, _DATA_DAYS - 1),
         hours=rng.randint(0, 23),
+        minutes=rng.randint(0, 59),
     )
-    end = start + timedelta(minutes=rng.randint(15, 240))
+    t2 = t1 + timedelta(minutes=rng.randint(5, 30))
 
-    use_bbox = rng.random() < 0.6
-    bbox = {}
-    if use_bbox:
-        min_lat = rng.uniform(20.0, 48.0)
-        max_lat = min_lat + rng.uniform(1.0, 10.0)
-        min_lon = rng.uniform(-130.0, -75.0)
-        max_lon = min_lon + rng.uniform(1.0, 15.0)
-        bbox = dict(min_lat=min_lat, max_lat=max_lat,
-                    min_lon=min_lon, max_lon=max_lon)
+    center_lat = rng.uniform(25.0, 48.0)
+    center_lon = rng.uniform(-125.0, -70.0)
+    ns_km = rng.uniform(_MIN_BOX_KM, _MAX_BOX_KM)
+    ew_km = rng.uniform(_MIN_BOX_KM, _MAX_BOX_KM)
+    lat_half = (ns_km / 2.0) / _KM_PER_DEG_LAT
+    lon_half = (ew_km / 2.0) / (_KM_PER_DEG_LAT * math.cos(math.radians(center_lat)))
+    bbox = {
+        'min_lat': center_lat - lat_half,
+        'max_lat': center_lat + lat_half,
+        'min_lon': center_lon - lon_half,
+        'max_lon': center_lon + lon_half,
+    }
 
-    temporal = rng.choice(['intersects', 'within', 'starts_in', 'ends_in'])
-    filter_wp = use_bbox and rng.random() < 0.5
+    temporal = rng.choice([
+        'time_intersects', 'time_within', 'time_starts_in', 'time_ends_in',
+    ])
+    filter_wp = rng.random() < 0.5
 
-    return dict(t1=start, t2=end, bbox=bbox, temporal=temporal, filter_wp=filter_wp)
+    ops: list = [
+        [temporal, []],
+        ['spatially_crosses', []],
+        ['with_bounds', [bbox]],
+    ]
+    if filter_wp:
+        ops.append(['filter_waypoints', []])
 
+    params = {'temporal': temporal, 'bbox': bbox, 'filter_wp': filter_wp}
+    return t1, t2, ops, params
 
-def run_query(data_dir: str, params: dict) -> list:
-    os.environ['FEDER_DATA_DIR'] = data_dir
-    from feder import FlightQuery
-
-    q = FlightQuery(params['t1'], params['t2'])
-    match params['temporal']:
-        case 'intersects': q = q.time_intersects()
-        case 'within':     q = q.time_within()
-        case 'starts_in':  q = q.time_starts_in()
-        case 'ends_in':    q = q.time_ends_in()
-
-    if params['bbox']:
-        q = q.spatially_crosses().with_bounds(**params['bbox'])
-        if params['filter_wp']:
-            q = q.filter_waypoints()
-
-    return sorted(list(q.run()), key=lambda t: t.source_id)
-
-
-def results_equal(a: list, b: list) -> tuple[bool, str]:
-    if len(a) != len(b):
-        return False, f'count bz2={len(a)} lz4={len(b)}'
-    for ta, tb in zip(a, b):
-        if ta.source_id != tb.source_id:
-            return False, f'source_id mismatch {ta.source_id!r} != {tb.source_id!r}'
-        if len(ta.points) != len(tb.points):
-            return False, (
-                f'traj {ta.source_id} point count '
-                f'{len(ta.points)} != {len(tb.points)}'
-            )
-        for j, (pa, pb) in enumerate(zip(ta.points, tb.points)):
-            if pa != pb:
-                return False, f'traj {ta.source_id} point {j}: {pa} != {pb}'
-    return True, ''
-
-
-# ── main loop ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('bz2_dir', help='source bz2 data directory')
-    parser.add_argument('lz4_dir', help='destination lz4 data directory')
     parser.add_argument('--seed', type=int, default=None)
     args = parser.parse_args()
 
@@ -97,38 +83,35 @@ def main() -> None:
     n_failures = 0
     t_start = time.monotonic()
 
-    def report():
+    def report() -> None:
         elapsed = time.monotonic() - t_start
-        rate = n_total / elapsed if elapsed > 0 else 0
+        rate = n_total / elapsed if elapsed > 0 else 0.0
         print(
             f'[{datetime.now().strftime("%H:%M:%S")}]  '
             f'{n_total} queries  {n_failures} failures  '
-            f'{rate:.1f} q/s  elapsed {elapsed/3600:.1f}h'
+            f'{rate:.1f} q/s  elapsed {elapsed/3600:.1f}h',
+            flush=True,
         )
 
-    signal.signal(signal.SIGINT, lambda *_: (report(), sys.exit(0)))
+    print('Soak test starting.  Ctrl-C to stop.\n', flush=True)
 
-    print(f'Soak test started.  bz2={args.bz2_dir}  lz4={args.lz4_dir}')
-    print('Press Ctrl-C to stop.\n')
+    try:
+        with ComparisonHarness.from_env() as h:
+            while True:
+                t1, t2, ops, params = random_query(rng)
+                verdict = h.compare(t1, t2, ops)
+                if not verdict.ok:
+                    n_failures += 1
+                    print(f'FAIL  t1={t1.isoformat()} t2={t2.isoformat()} {params}')
+                    print(f'      {verdict.message}')
+                n_total += 1
+                if n_total % 100 == 0:
+                    report()
+    except KeyboardInterrupt:
+        pass
 
-    while True:
-        params = random_query_params(rng)
-        try:
-            bz2_results = run_query(args.bz2_dir, params)
-            lz4_results = run_query(args.lz4_dir, params)
-            ok, msg = results_equal(bz2_results, lz4_results)
-            if not ok:
-                n_failures += 1
-                print(f'FAIL  {params}')
-                print(f'      {msg}')
-        except Exception as e:
-            n_failures += 1
-            print(f'ERROR  {params}')
-            print(f'       {e}')
-
-        n_total += 1
-        if n_total % 100 == 0:
-            report()
+    report()
+    sys.exit(1 if n_failures else 0)
 
 
 if __name__ == '__main__':

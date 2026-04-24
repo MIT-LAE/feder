@@ -1,125 +1,119 @@
 #!/usr/bin/env python3
 """Property-based equivalence test: random FlightQuery calls must return
-identical results from the bz2 and lz4 directories.
+identical results from the bz2 and lz4 stores.
 
-Run with pytest on the cluster after verify_sample.py and verify_queries.py
-pass.  Requires both data directories to be set via environment variables.
+Required environment variables:
+
+    BZ2_CODE_DIR  BZ2_DATA_DIR  LZ4_CODE_DIR  LZ4_DATA_DIR
 
 Usage:
-    BZ2_DIR=/data2/feder/main LZ4_DIR=/data2/feder/temp_lz4 \
+    BZ2_CODE_DIR=... BZ2_DATA_DIR=... LZ4_CODE_DIR=... LZ4_DATA_DIR=... \\
         pytest scripts/hypothesis_test.py -v --hypothesis-seed=0
 
-Environment variables:
-    BZ2_DIR   path to the original bz2 data directory
-    LZ4_DIR   path to the converted lz4 data directory
+A single harness (two executor subprocesses) is started once per pytest
+session and reused across all hypothesis examples.
 """
 
+from __future__ import annotations
+
+import math
 import os
-from datetime import datetime, timedelta, UTC, date
+from datetime import datetime, timedelta, UTC
 
 import pytest
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
-BZ2_DIR = os.environ.get('BZ2_DIR')
-LZ4_DIR = os.environ.get('LZ4_DIR')
+from _query_harness import ComparisonHarness
 
-if not BZ2_DIR or not LZ4_DIR:
+
+_REQUIRED = ('BZ2_CODE_DIR', 'BZ2_DATA_DIR', 'LZ4_CODE_DIR', 'LZ4_DATA_DIR')
+_missing = [k for k in _REQUIRED if not os.environ.get(k)]
+if _missing:
     pytest.skip(
-        'BZ2_DIR and LZ4_DIR environment variables must be set',
-        allow_module_level=True
+        f'missing required env vars: {", ".join(_missing)}',
+        allow_module_level=True,
     )
 
 
-# ── query parameter strategies ───────────────────────────────────────────────
+@pytest.fixture(scope='session')
+def harness():
+    with ComparisonHarness.from_env() as h:
+        yield h
 
-# Anchor times to dates known to have data.  Adjust these bounds to match
-# the actual date range present in your converted lz4 directory.
+
 _EPOCH = datetime(2025, 1, 1, tzinfo=UTC)
-_DATA_DAYS = 365  # adjust to actual span of converted data
+_DATA_DAYS = 365
+
+# Bounding boxes model the primary use case: regions around ground-based
+# cameras covering their effective field of view.  Width and height are
+# each drawn independently from [10 km, 200 km].
+_KM_PER_DEG_LAT = 111.0
+_MIN_BOX_KM = 10.0
+_MAX_BOX_KM = 200.0
+
 
 @st.composite
 def time_range_strategy(draw):
     start_offset_days = draw(st.integers(min_value=0, max_value=_DATA_DAYS - 1))
     start_offset_hours = draw(st.integers(min_value=0, max_value=23))
-    duration_minutes = draw(st.integers(min_value=15, max_value=240))
-    t1 = _EPOCH + timedelta(days=start_offset_days, hours=start_offset_hours)
+    start_offset_minutes = draw(st.integers(min_value=0, max_value=59))
+    duration_minutes = draw(st.integers(min_value=5, max_value=30))
+    t1 = _EPOCH + timedelta(
+        days=start_offset_days,
+        hours=start_offset_hours,
+        minutes=start_offset_minutes,
+    )
     t2 = t1 + timedelta(minutes=duration_minutes)
     return t1, t2
 
 
-bbox_strategy = st.one_of(
-    st.just({}),  # no spatial bounds
-    st.fixed_dictionaries({
-        'min_lat': st.floats(min_value=20.0, max_value=48.0),
-        'max_lat': st.floats(min_value=24.0, max_value=52.0),
-        'min_lon': st.floats(min_value=-130.0, max_value=-70.0),
-        'max_lon': st.floats(min_value=-126.0, max_value=-66.0),
-    }).filter(lambda b: b['min_lat'] < b['max_lat'] and b['min_lon'] < b['max_lon'])
-)
+@st.composite
+def bbox_strategy(draw):
+    center_lat = draw(st.floats(min_value=25.0, max_value=48.0))
+    center_lon = draw(st.floats(min_value=-125.0, max_value=-70.0))
+    ns_km = draw(st.floats(min_value=_MIN_BOX_KM, max_value=_MAX_BOX_KM))
+    ew_km = draw(st.floats(min_value=_MIN_BOX_KM, max_value=_MAX_BOX_KM))
+    lat_half = (ns_km / 2.0) / _KM_PER_DEG_LAT
+    lon_half = (ew_km / 2.0) / (_KM_PER_DEG_LAT * math.cos(math.radians(center_lat)))
+    return {
+        'min_lat': center_lat - lat_half,
+        'max_lat': center_lat + lat_half,
+        'min_lon': center_lon - lon_half,
+        'max_lon': center_lon + lon_half,
+    }
 
-temporal_type_strategy = st.sampled_from([
-    'intersects', 'within', 'starts_in', 'ends_in'
+
+temporal_strategy = st.sampled_from([
+    'time_intersects', 'time_within', 'time_starts_in', 'time_ends_in',
 ])
 
-filter_waypoints_strategy = st.booleans()
 
+def _build_ops(temporal: str, bbox: dict, filter_wp: bool) -> list:
+    ops: list = [
+        [temporal, []],
+        ['spatially_crosses', []],
+        ['with_bounds', [bbox]],
+    ]
+    if filter_wp:
+        ops.append(['filter_waypoints', []])
+    return ops
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-def build_and_run(data_dir: str, t1, t2, bbox: dict,
-                  temporal_type: str, filter_wp: bool) -> list:
-    os.environ['FEDER_DATA_DIR'] = data_dir
-    from feder import FlightQuery
-
-    q = FlightQuery(t1, t2)
-    match temporal_type:
-        case 'intersects': q = q.time_intersects()
-        case 'within':     q = q.time_within()
-        case 'starts_in':  q = q.time_starts_in()
-        case 'ends_in':    q = q.time_ends_in()
-
-    if bbox:
-        # Only add spatial query if we have bounds; choose CROSSES.
-        q = q.spatially_crosses().with_bounds(**bbox)
-
-    if filter_wp and bbox:
-        q = q.filter_waypoints()
-
-    return sorted(list(q.run()), key=lambda t: t.source_id)
-
-
-def assert_results_equal(bz2_results: list, lz4_results: list) -> None:
-    assert len(bz2_results) == len(lz4_results), (
-        f'result count differs: bz2={len(bz2_results)} lz4={len(lz4_results)}'
-    )
-    for ta, tb in zip(bz2_results, lz4_results):
-        assert ta.source_id == tb.source_id
-        assert len(ta.points) == len(tb.points), (
-            f'trajectory {ta.source_id}: '
-            f'point count {len(ta.points)} != {len(tb.points)}'
-        )
-        for pa, pb in zip(ta.points, tb.points):
-            assert pa == pb, (
-                f'trajectory {ta.source_id}: point mismatch {pa} != {pb}'
-            )
-
-
-# ── test ──────────────────────────────────────────────────────────────────────
 
 @given(
     time_range=time_range_strategy(),
-    bbox=bbox_strategy,
-    temporal_type=temporal_type_strategy,
-    filter_wp=filter_waypoints_strategy,
+    bbox=bbox_strategy(),
+    temporal=temporal_strategy,
+    filter_wp=st.booleans(),
 )
 @settings(
     max_examples=2000,
-    suppress_health_check=[HealthCheck.too_slow],
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.function_scoped_fixture],
     deadline=None,
 )
-def test_bz2_lz4_equivalence(time_range, bbox, temporal_type, filter_wp):
+def test_bz2_lz4_equivalence(harness, time_range, bbox, temporal, filter_wp):
     t1, t2 = time_range
-    bz2_results = build_and_run(BZ2_DIR, t1, t2, bbox, temporal_type, filter_wp)
-    lz4_results = build_and_run(LZ4_DIR, t1, t2, bbox, temporal_type, filter_wp)
-    assert_results_equal(bz2_results, lz4_results)
+    ops = _build_ops(temporal, bbox, filter_wp)
+    print(f't1={t1} t2={t2} temporal={temporal} bbox={bbox} filter_wp={filter_wp}')
+    verdict = harness.compare(t1, t2, ops)
+    assert verdict.ok, f'{temporal} bbox={bbox} filter_wp={filter_wp}: {verdict.message}'
