@@ -10,8 +10,11 @@ success, non-zero on any failure so that Slurm marks the job failed.
 
 import argparse
 import bz2
+import os
+import shutil
 import sqlite3
 import sys
+import tempfile
 
 import lz4.frame
 
@@ -19,11 +22,24 @@ BLOB_VERSION = 0x01
 
 
 def convert(src_path: str, dst_path: str) -> None:
-    src = sqlite3.connect(f'file:{src_path}?mode=ro', uri=True)
+    # The source directory may not be writable by the user running this
+    # script (SQLite needs to create -journal/-wal files alongside the DB
+    # even for read-only opens in some configurations, and .backup() can be
+    # slow for large files).  The source database is guaranteed to have
+    # been vacuumed with no concurrent writers, so a plain file copy into a
+    # writable temporary directory is safe and substantially faster.
+    tmp_dir = tempfile.mkdtemp(prefix='feder-convert-')
+    tmp_src_path = os.path.join(tmp_dir, os.path.basename(src_path))
+    try:
+        shutil.copyfile(src_path, tmp_src_path)
+        shutil.copyfile(tmp_src_path, dst_path)
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
+
+    src = sqlite3.connect(f'file:{tmp_src_path}?mode=ro', uri=True)
     dst = sqlite3.connect(dst_path)
     try:
-        src.backup(dst)
-
         rows = dst.execute('SELECT id, points FROM trajectories').fetchall()
         dst.executemany(
             'UPDATE trajectories SET points=? WHERE id=?',
@@ -55,6 +71,7 @@ def convert(src_path: str, dst_path: str) -> None:
     finally:
         dst.close()
         src.close()
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def main() -> None:
