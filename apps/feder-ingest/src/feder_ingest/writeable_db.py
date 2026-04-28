@@ -1,9 +1,10 @@
-import bz2
 from datetime import datetime, date
 import logging
+import lz4.frame
 from operator import attrgetter
 
 from feder_common import DB, Trajectory, Point, MISSING_VALUE
+from feder_common.db import _BLOB_VERSION
 
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,7 @@ class WritableDB(DB):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id""",
             (traj.source.value, traj.source_id, traj.transponder_id,
              traj.orig, traj.dest, traj.callsign, traj.aircraft_type,
-             bz2.compress(Point.pack(traj.points)))
+             bytes([_BLOB_VERSION]) + lz4.frame.compress(Point.pack(traj.points)))
         )
         id = cur.fetchone()[0]
 
