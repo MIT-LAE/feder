@@ -24,9 +24,9 @@ class FlightQuery:
     trajectories are included if they have any points with timestamps within
     the specified time range.
 
-    For spatial queries, the default is "crosses", meaning that trajectories
-    are included if they have any points that lie within the specified
-    bounding box.
+    Spatial filtering is disabled by default. If you add spatial bounds with
+    `with_bounds`, you must also choose either `spatially_crosses()` or
+    `spatially_within()`.
 
     #### Example
 
@@ -137,7 +137,7 @@ class FlightQuery:
         """Add spatial bounds to the query.
 
         Bounds can be specified either as a `BoundingBox` value, or as
-        individual minimum or maximum limits on latidude, longitude and
+        individual minimum or maximum limits on latitude, longitude and
         altitude. If both a `BoundingBox` and individual limits are provided,
         the individual limits will override the corresponding values in the
         `BoundingBox`."""
@@ -159,19 +159,28 @@ class FlightQuery:
         return retval
 
     def with_callsign(self, callsign: str) -> FlightQuery:
-        """Restrict the query to a specific callsign."""
+        """Restrict the query to a callsign.
+
+        The `*` character may be used as a wildcard.
+        """
         retval = self._clone()
         retval._callsign = callsign
         return retval
 
     def with_orig(self, orig: str) -> FlightQuery:
-        """Restrict the query to a specific origin airport code."""
+        """Restrict the query to an origin airport code.
+
+        The `*` character may be used as a wildcard.
+        """
         retval = self._clone()
         retval._orig = orig
         return retval
 
     def with_dest(self, dest: str) -> FlightQuery:
-        """Restrict the query to a specific destination airport code."""
+        """Restrict the query to a destination airport code.
+
+        The `*` character may be used as a wildcard.
+        """
         retval = self._clone()
         retval._dest = dest
         return retval
@@ -195,7 +204,8 @@ class FlightQuery:
         This option causes queries to return "partial" trajectories that
         contain only the waypoints that match the exact query conditions. In
         particular, only waypoints within the specified time range and/or
-        bounding box will be included.
+        bounding box will be included. Returned trajectories are marked with
+        `partial=True`.
         """
         retval = self._clone()
         retval._filter_waypoints = True

@@ -9,11 +9,12 @@ right ideas though!
 
 Before starting, you need to install the Feder API in a virtual environment,
 either using Conda, uv, Python's built-in `venv` package or some other
-mechanism. **You will need Python 3.13 to use Feder.** Using Conda, you might
+mechanism. **You will need Python 3.12 or later to use Feder.** Using Conda,
+you might
 do something like (we'll use Mamba, because it's faster!):
 
 ``` shell
-mamba create -n feder-test python==3.13
+mamba create -n feder-test python==3.12
 mamba activate feder-test
 mamba install pandas
 pip install --extra-index-url https://www.mit.edu/~iross/pypi feder
@@ -41,7 +42,7 @@ The heart of the Feder API is the `feder.query.FlightQuery` class, but we'll
 also demonstrate some functions for checking data availability.
 
 ``` python
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 import os
 import pandas as pd
 from feder import FlightQuery, BoundingBox
@@ -86,7 +87,7 @@ During normal operations, the Feder backend servers collect data from a single
 data source. However, there may be periods when there is data from multiple
 data sources as we switch over from one source to another. The
 `feder.available_sources` function allows you to investigate what data sources
-are in use for a particular day. The return value is a list of
+are in use for a particular day. The return value is a set of
 `feder.DataSource` values. In the example here, the data file examined
 contains only data from the FlightAware data source.
 
@@ -98,11 +99,11 @@ available_sources(date(2025, 4, 1))
 ## Constructing flight queries
 
 Flight queries in Feder are represented by objects of the `feder.FlightQuery`
-class. All flight queries require a start and end time, so let's make some
-times:
+class. All flight queries require a start and end time. Query times should be
+provided as timezone-aware UTC `datetime` values, so let's make some times:
 
 ``` python
-t1 = datetime(2025, 4, 1, 20, 0)
+t1 = datetime(2025, 4, 1, 20, 0, tzinfo=UTC)
 t2 = t1 + timedelta(minutes=30)
 ```
 
@@ -143,8 +144,9 @@ query = (
 )
 ```
 
-(The `bounds` method takes either a `BoundingBox` or a sequence of keyword
-arguments for bounding box parameters.)
+(The `with_bounds` method takes either a `BoundingBox` or a sequence of
+keyword arguments for bounding box parameters. Any query with bounds must also
+specify either `spatially_crosses()` or `spatially_within()`.)
 
 The above queries will retrieve complete trajectories matching the given
 criteria. In some cases, you may want to filter the trajectory waypoints to
@@ -314,7 +316,7 @@ just print out the number of flights and total number of trajectory points in
 each slice:
 
 ```python
-fl_boundaries = np.arange(250, 410, 10)
+fl_boundaries = list(range(250, 410, 10))
 for fl_min, fl_max in zip(fl_boundaries[:-1], fl_boundaries[1:]):
     sub_query = query.with_bounds(min_alt=fl_min * 100, max_alt=fl_max * 100)
     flights = list(sub_query.run())

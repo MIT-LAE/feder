@@ -8,7 +8,10 @@ from feder.common import DB, DataSource
 
 
 def available_days() -> list[tuple[date, date]]:
-    """Get a list of available days in the data directory."""
+    """Get ranges of available days in the data directory.
+
+    The data directory is read from the `FEDER_DATA_DIR` environment variable.
+    """
     data_dir = os.environ.get('FEDER_DATA_DIR')
     if data_dir is None:
         raise ValueError('environment variable FEDER_DATA_DIR must be set')
@@ -25,7 +28,10 @@ def available_days() -> list[tuple[date, date]]:
 
 
 def available_sources(day: date) -> set[DataSource]:
-    """Return data sources in use on a given day."""
+    """Return data sources in use on a given day.
+
+    The data directory is read from the `FEDER_DATA_DIR` environment variable.
+    """
     data_dir = os.environ.get('FEDER_DATA_DIR')
     if data_dir is None:
         raise ValueError('environment variable FEDER_DATA_DIR must be set')
@@ -35,7 +41,10 @@ def available_sources(day: date) -> set[DataSource]:
 
 
 def available_times(day: date) -> list[tuple[datetime, datetime]]:
-    """Get a list of available times for a given day."""
+    """Get UTC time ranges for which data is available on a given day.
+
+    The data directory is read from the `FEDER_DATA_DIR` environment variable.
+    """
     data_dir = os.environ.get('FEDER_DATA_DIR')
     if data_dir is None:
         raise ValueError('environment variable FEDER_DATA_DIR must be set')

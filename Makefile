@@ -1,5 +1,5 @@
 DOC_MODULES=feder
-DOC_LOGO=/pages/iross/feder/lae-logo.png
+DOC_LOGO=https://mit-lae.github.io/feder/lae-logo.png
 
 .PHONY: dist docs doc-server
 

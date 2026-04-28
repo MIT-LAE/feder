@@ -97,9 +97,9 @@ class Trajectory:
     """A single flight trajectory."""
 
     source_id: str
-    """The data source for the trajectory."""
-    source: DataSource
     """The unique source-specific ID of the trajectory."""
+    source: DataSource
+    """The data source for the trajectory."""
     transponder_id: str
     """The ADS-B transponder ID of the aircraft."""
     orig: str | None

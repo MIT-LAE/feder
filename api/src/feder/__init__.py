@@ -75,18 +75,18 @@ export FEDER_DATA_DIR=/home/mcast/data/feder
 and then this in Python:
 
 ``` python
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from feder import FlightQuery
-t1 = datetime(2025, 5, 22, 20, 0)
+t1 = datetime(2025, 5, 22, 20, 0, tzinfo=UTC)
 t2 = t1 + timedelta(minutes=30)
 flights = list(FlightQuery(t1, t2).with_orig('KBOS').run())
 
 ```
 
-This will return a Python array of 10
-[`Trajectory`](doc/api-reference.md#Trajectory) objects of flights crossing
-the given latitude/longitude bounding box in the one hour window starting at
-the given time (all times in UTC).
+This will return a Python list of [`Trajectory`](#Trajectory) objects for
+flights originating at KBOS whose trajectories intersect the 30-minute window
+starting at the given time. All query times should be provided as UTC
+`datetime` values.
 
 The API efficiently supports a range of query options and data return formats.
 See the [tutorial](feder/tutorial.html) or the API reference documentation
