@@ -10,4 +10,4 @@ from .db import *  # noqa
 from .utils import *  # noqa
 from .version import *  # noqa
 
-__version__ = '0.2.4'
+__version__ = '1.0.0'

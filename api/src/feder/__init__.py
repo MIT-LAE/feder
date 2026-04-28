@@ -121,4 +121,4 @@ __all__ = [
     'tutorial'
 ]
 
-__version__ = '0.2.4'
+__version__ = '1.0.0'
