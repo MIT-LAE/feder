@@ -162,7 +162,7 @@ class DB:
             self.conn = sqlite3.connect(self.db_file())
         else:
             self.conn = sqlite3.connect(
-                f'file:{self.db_file()}?mode=ro', uri=True
+                f'file:{self.db_file()}?mode=ro&immutable=1', uri=True
             )
 
     def db_file(self):
