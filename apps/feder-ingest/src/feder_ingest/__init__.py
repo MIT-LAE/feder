@@ -106,7 +106,13 @@ def run(debug: bool, config: str | None) -> None:
             rmq.start()
 
             # Set up database connection cache.
-            db = DBCache(cfg.data_directory)
+            db = DBCache(
+                cfg.data_directory,
+                cfg.staging_directory,
+                cfg.scratch_directory,
+                export_interval=cfg.ingester_export_interval,
+                finalize_after=cfg.ingester_finalize_after,
+            )
 
             # Set up checkpoint timer thread.
             checkpoint_timer = CheckpointTimerThread(queue)

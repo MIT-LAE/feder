@@ -3,6 +3,7 @@ import logging
 import os
 
 from feder_common import Trajectory
+from feder_server import validate_path_roots
 
 from .writeable_db import WritableDB
 from .utils import LastUpdatedOrderedDict
@@ -20,16 +21,32 @@ class DBCache:
     def __init__(
             self,
             data_dir: str,
+            staging_dir: str,
+            scratch_dir: str,
             connection_cache_size: int = 16,
-            nursery_size: int = 5
+            nursery_size: int = 5,
+            export_interval: timedelta = timedelta(hours=1),
+            finalize_after: timedelta = timedelta(hours=12),
     ):
+        validate_path_roots({
+            'data_dir': data_dir,
+            'staging_dir': staging_dir,
+            'scratch_dir': scratch_dir,
+        })
         if not os.path.exists(data_dir):
             raise ValueError(
                 f'database directory {data_dir} does not exist'
             )
         self.data_dir = data_dir
+        self.staging_dir = staging_dir
+        self.scratch_dir = scratch_dir
+        self.export_scratch_dir = os.path.join(scratch_dir, 'ingester-export')
+        os.makedirs(staging_dir, exist_ok=True)
+        os.makedirs(self.export_scratch_dir, exist_ok=True)
         self.connection_cache_size = connection_cache_size
         self.nursery_size = nursery_size
+        self.export_interval = export_interval
+        self.finalize_after = finalize_after
         self._nursery: ConnectionCache = LastUpdatedOrderedDict()
         self._connections: ConnectionCache = LastUpdatedOrderedDict()
         self._touched = set[WritableDB]()

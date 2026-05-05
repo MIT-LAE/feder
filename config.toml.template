@@ -3,6 +3,7 @@
 
 [paths]
 data-directory = "/big/mcast/data/feder"
+staging-directory = "/local/durable/feder-staging"
 scratch-directory = "/big/mcast/data/feder-scratch"
 
 [rabbitmq]
@@ -21,6 +22,8 @@ to_name = "State of Feder"
 
 [ingester]
 prometheus-port = 19001
+export-interval = "1 hour"
+finalize-after = "12 hours"
 
 [sources]
 # Defaults for all sources.

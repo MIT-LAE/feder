@@ -9,8 +9,9 @@ from feder_rx.db import DB
 
 TEST_CONFIG = """
 [paths]
-data-directory = "<PLACEHOLDER>"
-scratch-directory = "<PLACEHOLDER>"
+data-directory = "<PLACEHOLDER>/data"
+staging-directory = "<PLACEHOLDER>/staging"
+scratch-directory = "<PLACEHOLDER>/scratch"
 
 [rabbitmq]
 host = "none"
@@ -58,8 +59,10 @@ prometheus-port = 19005
 def config(tmp_path):
     cfg = Config(config_text=TEST_CONFIG)
     os.makedirs(tmp_path / 'data')
+    os.makedirs(tmp_path / 'staging')
     os.makedirs(tmp_path / 'scratch')
     cfg.data_directory = tmp_path / 'data'
+    cfg.staging_directory = tmp_path / 'staging'
     cfg.scratch_directory = tmp_path / 'scratch'
     return cfg
 
