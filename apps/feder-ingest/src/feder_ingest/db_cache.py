@@ -1,6 +1,9 @@
 from datetime import datetime, date, timedelta
 import logging
 import os
+import shutil
+import sqlite3
+import uuid
 
 from feder_common import Trajectory
 from feder_server import validate_path_roots
@@ -112,14 +115,7 @@ class DBCache:
     def _promote(self, date_db: tuple[date, WritableDB]) -> None:
         date, conn = date_db
         logger.info('nursery promotion: %s', date.strftime('%Y-%j'))
-        cur = conn.cursor()
-        path = WritableDB.db_path(self.data_dir, date)
-        try:
-            os.remove(path)
-        except FileNotFoundError:
-            pass
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        cur.execute(f"VACUUM INTO '{WritableDB.db_path(self.data_dir, date)}'")
+        self._export_db(conn, date)
 
     def checkpoint(self) -> None:
         self.commit(force=True)
@@ -127,7 +123,65 @@ class DBCache:
             db = self._nursery[day]
             if db.size() > 0:
                 logger.info('nursery checkpoint: %s', day.strftime('%Y-%j'))
-                self._promote((day, db))
+                self._export_db(db, day)
+
+    def _export_db(self, db: WritableDB, ref_date: datetime | date | int) -> None:
+        """Export a clean SQLite snapshot and publish it atomically."""
+        ref_date = WritableDB.normalize_date(ref_date)
+        db.commit()
+
+        snapshot_path = os.path.join(
+            self.export_scratch_dir,
+            f'{ref_date.strftime("%Y-%j")}.export.{os.getpid()}.{uuid.uuid4().hex}.sqlite'
+        )
+        try:
+            cur = db.cursor()
+            cur.execute('VACUUM INTO ?', (snapshot_path,))
+
+            snapshot_conn = sqlite3.connect(snapshot_path)
+            try:
+                snapshot_conn.execute('PRAGMA journal_mode=DELETE')
+            finally:
+                snapshot_conn.close()
+
+            self._publish_snapshot(snapshot_path, ref_date)
+        finally:
+            try:
+                os.remove(snapshot_path)
+            except FileNotFoundError:
+                pass
+
+    def _publish_snapshot(self, snapshot_path: str, ref_date: datetime | date | int) -> None:
+        """Copy a snapshot to a hidden public temp, then replace atomically."""
+        final_path = WritableDB.db_path(self.data_dir, ref_date)
+        final_dir = os.path.dirname(final_path)
+        final_name = os.path.basename(final_path)
+        hidden_path = os.path.join(
+            final_dir,
+            f'.{final_name}.exporting.{os.getpid()}.{uuid.uuid4().hex}'
+        )
+        os.makedirs(final_dir, exist_ok=True)
+
+        try:
+            with open(snapshot_path, 'rb') as src, open(hidden_path, 'xb') as dst:
+                shutil.copyfileobj(src, dst)
+                dst.flush()
+                os.fsync(dst.fileno())
+            os.replace(hidden_path, final_path)
+            try:
+                dir_fd = os.open(final_dir, os.O_RDONLY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except OSError:
+                logger.debug('failed to fsync public database directory', exc_info=True)
+        except Exception:
+            try:
+                os.remove(hidden_path)
+            except FileNotFoundError:
+                pass
+            raise
 
     def commit(self, force: bool = False) -> None:
         do_commit = False
