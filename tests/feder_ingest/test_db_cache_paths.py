@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 import sqlite3
 
@@ -292,3 +292,134 @@ def test_close_promotes_nursery_to_staging_without_deleting_it(tmp_path):
     assert staging_path.exists()
     assert public_path.exists()
     assert _count_rows(staging_path) == 1
+
+
+def test_startup_scan_marks_staged_dirty_when_public_missing_or_older(tmp_path):
+    day = datetime(2025, 5, 22)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    _make_db(staging, day, 'staging')
+
+    cache = DBCache(str(data), str(staging), str(scratch))
+    try:
+        assert day in cache._dirty
+        assert day in cache._last_update
+    finally:
+        cache.close()
+
+    _make_public_snapshot(data, staging, scratch, day, 'public')
+    _make_db(staging, day, 'staging-new')
+    old = datetime(2025, 1, 1).timestamp()
+    new = datetime(2025, 1, 2).timestamp()
+    os.utime(data / '2025' / '2025-142.sqlite', (old, old))
+    os.utime(staging / '2025' / '2025-142.sqlite', (new, new))
+
+    cache = DBCache(str(data), str(staging), str(scratch))
+    try:
+        assert day in cache._dirty
+        assert cache._last_export[day] == datetime.fromtimestamp(old)
+    finally:
+        cache.close()
+
+
+def test_dirty_recovered_staged_db_exports_without_new_ingestion(tmp_path):
+    day = datetime(2025, 5, 22)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    _make_db(staging, day, 'recovered')
+
+    cache = DBCache(str(data), str(staging), str(scratch), export_interval=timedelta(0))
+    try:
+        assert day in cache._dirty
+        cache.checkpoint()
+        public_path = data / '2025' / '2025-142.sqlite'
+        assert public_path.exists()
+        assert _count_rows(public_path) == 1
+        assert day not in cache._dirty
+    finally:
+        cache.close()
+
+
+def test_idle_finalization_exports_closes_and_deletes_staging(tmp_path):
+    day = datetime(2025, 5, 22)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    _make_db(staging, day, 'idle')
+
+    cache = DBCache(str(data), str(staging), str(scratch), finalize_after=timedelta(0))
+    try:
+        db = cache.connect(day)
+        cache._dirty.add(day)
+        cache._last_update[day] = datetime.now() - timedelta(hours=1)
+        cache.checkpoint()
+
+        staging_path = staging / '2025' / '2025-142.sqlite'
+        public_path = data / '2025' / '2025-142.sqlite'
+        assert public_path.exists()
+        assert not staging_path.exists()
+        assert not staging_path.with_name('2025-142.sqlite-wal').exists()
+        assert not staging_path.with_name('2025-142.sqlite-shm').exists()
+        assert day not in cache._connections
+        assert day not in cache._last_update
+        assert db.conn is None
+    finally:
+        cache.close()
+
+
+def test_finalization_export_failure_keeps_staging_retryable(tmp_path, monkeypatch):
+    day = datetime(2025, 5, 22)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    _make_db(staging, day, 'idle')
+
+    cache = DBCache(str(data), str(staging), str(scratch), finalize_after=timedelta(0))
+
+    def fail_publish(snapshot_path, ref_date):
+        raise RuntimeError('publish failed')
+
+    monkeypatch.setattr(cache, '_publish_snapshot', fail_publish)
+    try:
+        cache._dirty.add(day)
+        cache._last_update[day] = datetime.now() - timedelta(hours=1)
+        cache.checkpoint()
+
+        assert (staging / '2025' / '2025-142.sqlite').exists()
+        assert not (data / '2025' / '2025-142.sqlite').exists()
+        assert day in cache._dirty
+        assert day in cache._last_update
+    finally:
+        cache.close()
+
+
+def test_startup_temp_cleanup_removes_import_export_temps(tmp_path):
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data_year = data / '2025'
+    staging_year = staging / '2025'
+    export_scratch = scratch / 'ingester-export'
+    data_year.mkdir(parents=True)
+    staging_year.mkdir(parents=True)
+    export_scratch.mkdir(parents=True)
+
+    importing = staging_year / '.2025-142.sqlite.importing.123'
+    exporting = data_year / '.2025-142.sqlite.exporting.123'
+    scratch_tmp = export_scratch / '2025-142.export.123.sqlite'
+    for path in (importing, exporting, scratch_tmp):
+        path.write_text('temp')
+
+    cache = DBCache(str(data), str(staging), str(scratch))
+    try:
+        assert not importing.exists()
+        assert not exporting.exists()
+        assert not scratch_tmp.exists()
+    finally:
+        cache.close()

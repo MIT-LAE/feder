@@ -1,6 +1,8 @@
 from datetime import datetime, date, timedelta
+import glob
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import uuid
@@ -57,6 +59,56 @@ class DBCache:
         self._last_update: dict[date, datetime] = {}
         self._last_export: dict[date, datetime] = {}
         self._trajectory_count = 0
+        self._startup_cleanup()
+        self._scan_staging()
+
+    def _startup_cleanup(self) -> None:
+        for path in glob.glob(os.path.join(self.staging_dir, '????', '.*.sqlite.importing.*')):
+            self._remove_temp_file(path)
+        for path in glob.glob(os.path.join(self.export_scratch_dir, '*')):
+            self._remove_temp_file(path)
+        for path in glob.glob(os.path.join(self.data_dir, '????', '.*.sqlite.exporting.*')):
+            self._remove_temp_file(path)
+
+    def _remove_temp_file(self, path: str) -> None:
+        try:
+            if os.path.isfile(path) or os.path.islink(path):
+                os.remove(path)
+        except OSError:
+            logger.debug('failed to remove temporary file %s', path, exc_info=True)
+
+    def _scan_staging(self) -> None:
+        for path in glob.glob(os.path.join(self.staging_dir, '????', '????-???.sqlite')):
+            day = self._date_from_db_path(path)
+            if day is None:
+                continue
+            staging_mtime = self._db_mtime(path)
+            self._last_update[day] = datetime.fromtimestamp(staging_mtime)
+            public_path = WritableDB.db_path(self.data_dir, day)
+            if os.path.exists(public_path):
+                public_mtime = os.path.getmtime(public_path)
+                self._last_export[day] = datetime.fromtimestamp(public_mtime)
+                if staging_mtime > public_mtime:
+                    self._dirty.add(day)
+            else:
+                self._dirty.add(day)
+
+    def _date_from_db_path(self, path: str) -> datetime | None:
+        match = re.fullmatch(r'(\d{4})-(\d{3})\.sqlite', os.path.basename(path))
+        if match is None:
+            return None
+        try:
+            return datetime.strptime(f'{match.group(1)}-{match.group(2)}', '%Y-%j')
+        except ValueError:
+            return None
+
+    def _db_mtime(self, path: str) -> float:
+        mtimes = [os.path.getmtime(path)]
+        for suffix in ('-wal', '-shm'):
+            sidecar = path + suffix
+            if os.path.exists(sidecar):
+                mtimes.append(os.path.getmtime(sidecar))
+        return max(mtimes)
 
     def connect(self, ref_date: datetime | date | int) -> WritableDB:
         ref_date = WritableDB.normalize_date(ref_date)
@@ -196,12 +248,86 @@ class DBCache:
                 except Exception:
                     logger.exception('failed to export nursery database: %s', day.strftime('%Y-%j'))
         for day in list(self._dirty):
-            db = self._connections.get(day)
-            if db is not None and self._should_export(day, now):
+            if self._should_export(day, now):
                 try:
-                    self._export_db(db, day)
+                    self._export_staged(day)
                 except Exception:
                     logger.exception('failed to export staged database: %s', day.strftime('%Y-%j'))
+        self._finalize_idle(now)
+
+    def _export_staged(self, day: datetime | date | int) -> None:
+        day = WritableDB.normalize_date(day)
+        db = self._connections.get(day)
+        if db is not None:
+            self._export_db(db, day)
+        else:
+            self._export_staged_file(day)
+
+    def _export_staged_file(self, day: datetime | date | int) -> None:
+        day = WritableDB.normalize_date(day)
+        staging_path = WritableDB.db_path(self.staging_dir, day)
+        snapshot_path = os.path.join(
+            self.export_scratch_dir,
+            f'{day.strftime("%Y-%j")}.export.{os.getpid()}.{uuid.uuid4().hex}.sqlite'
+        )
+        conn = self._open_raw_staging_connection(staging_path)
+        try:
+            conn.execute('VACUUM INTO ?', (snapshot_path,))
+            snapshot_conn = sqlite3.connect(snapshot_path)
+            try:
+                snapshot_conn.execute('PRAGMA journal_mode=DELETE')
+            finally:
+                snapshot_conn.close()
+            self._publish_snapshot(snapshot_path, day)
+            self._last_export[day] = datetime.now()
+            self._dirty.discard(day)
+        finally:
+            conn.close()
+            try:
+                os.remove(snapshot_path)
+            except FileNotFoundError:
+                pass
+
+    def _open_raw_staging_connection(self, staging_path: str) -> sqlite3.Connection:
+        uri = f'file:{staging_path}?mode=ro'
+        try:
+            return sqlite3.connect(uri, uri=True)
+        except sqlite3.Error:
+            logger.debug('failed to open staged database read-only; falling back to read-write', exc_info=True)
+            return sqlite3.connect(staging_path)
+
+    def _finalize_idle(self, now: datetime) -> None:
+        for day, last_update in list(self._last_update.items()):
+            if day in self._nursery:
+                continue
+            if now - last_update >= self.finalize_after:
+                try:
+                    self._finalize_staging(day)
+                except Exception:
+                    logger.exception('failed to finalize staged database: %s', day.strftime('%Y-%j'))
+
+    def _finalize_staging(self, day: datetime | date | int) -> None:
+        day = WritableDB.normalize_date(day)
+        if not os.path.exists(WritableDB.db_path(self.staging_dir, day)):
+            self._remove_metadata(day)
+            return
+
+        self.commit(force=True)
+        self._export_staged(day)
+
+        conn = self._connections.pop(day, None)
+        if conn is not None:
+            conn.close()
+        self._delete_staging_files(day)
+        self._remove_metadata(day)
+        logger.info('finalized staged database: %s', day.strftime('%Y-%j'))
+
+    def _remove_metadata(self, day: datetime | date | int) -> None:
+        day = WritableDB.normalize_date(day)
+        self._dirty.discard(day)
+        self._touched.discard(day)
+        self._last_update.pop(day, None)
+        self._last_export.pop(day, None)
 
     def _should_export(self, day: date, now: datetime) -> bool:
         last_export = self._last_export.get(day)
@@ -301,9 +427,9 @@ class DBCache:
                 self._promote((day, db))
             db.close()
             del self._nursery[day]
-        elif day in self._connections:
+        elif day in self._connections or os.path.exists(WritableDB.db_path(self.staging_dir, day)):
             try:
-                self._export_db(self._connections[day], day)
+                self._export_staged(day)
             except Exception:
                 logger.exception('failed to export end-of-day database: %s', day.strftime('%Y-%j'))
 
