@@ -116,3 +116,179 @@ def test_publish_snapshot_uses_hidden_temp_and_cleans_up_on_failure(tmp_path, mo
         assert not (data / '2025' / '2025-142.sqlite').exists()
     finally:
         cache.close()
+
+
+def _trajectory_for(day: datetime, source_id: str = 'source-1'):
+    traj = _trajectory()
+    return Trajectory(
+        source=traj.source,
+        source_id=source_id,
+        transponder_id=traj.transponder_id,
+        orig=traj.orig,
+        dest=traj.dest,
+        callsign=traj.callsign,
+        aircraft_type=traj.aircraft_type,
+        points=[Point(
+            time=day.replace(hour=12, tzinfo=timezone.utc),
+            lon=-71.0,
+            lat=42.0,
+            alt=30000,
+            alt_gnss=None,
+            heading=None,
+            on_ground=False,
+        )],
+    )
+
+
+def _count_rows(path):
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute('SELECT COUNT(*) FROM trajectories').fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _make_db(root, day, *source_ids):
+    db = WritableDB(str(root), day)
+    try:
+        for source_id in source_ids:
+            db.add_trajectory(_trajectory_for(day, source_id))
+    finally:
+        db.close()
+
+
+def _make_public_snapshot(data, staging, scratch, day, *source_ids):
+    cache = DBCache(str(data), str(staging), str(scratch))
+    db = WritableDB(str(staging), day)
+    try:
+        for source_id in source_ids:
+            db.add_trajectory(_trajectory_for(day, source_id))
+        cache._export_db(db, day)
+    finally:
+        db.close()
+        cache.close()
+    cache = DBCache(str(data), str(staging), str(scratch))
+    try:
+        cache._delete_staging_files(day)
+    finally:
+        cache.close()
+
+
+def test_connect_creates_nursery_only_when_no_staging_or_public_exists(tmp_path):
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    cache = DBCache(str(data), str(staging), str(scratch))
+
+    try:
+        db = cache.connect(datetime(2025, 5, 22))
+        assert db.in_memory
+        assert datetime(2025, 5, 22) in cache._nursery
+        assert not (staging / '2025' / '2025-142.sqlite').exists()
+        assert not (data / '2025' / '2025-142.sqlite').exists()
+    finally:
+        cache.close()
+
+
+def test_existing_staging_takes_precedence_over_public(tmp_path):
+    day = datetime(2025, 5, 22)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    _make_public_snapshot(data, staging, scratch, day, 'public')
+    _make_db(staging, day, 'staging-1', 'staging-2')
+
+    cache = DBCache(str(data), str(staging), str(scratch))
+    try:
+        db = cache.connect(day)
+        assert not db.in_memory
+        assert db.data_dir == str(staging)
+        assert db.size() == 2
+        assert _count_rows(data / '2025' / '2025-142.sqlite') == 1
+    finally:
+        cache.close()
+
+
+def test_existing_public_imports_to_staging_and_writes_only_staging(tmp_path):
+    day = datetime(2025, 5, 22)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    _make_public_snapshot(data, staging, scratch, day, 'public')
+
+    public_path = data / '2025' / '2025-142.sqlite'
+    cache = DBCache(str(data), str(staging), str(scratch))
+    try:
+        db = cache.connect(day)
+        assert db.data_dir == str(staging)
+        assert (staging / '2025' / '2025-142.sqlite').exists()
+        assert db.size() == 1
+
+        db.add_trajectory(_trajectory_for(day, 'staging-only'))
+        assert db.size() == 2
+        assert _count_rows(public_path) == 1
+        assert not public_path.with_name('2025-142.sqlite-wal').exists()
+        assert not public_path.with_name('2025-142.sqlite-shm').exists()
+    finally:
+        cache.close()
+
+
+def test_nursery_checkpoint_exports_public_without_creating_staging(tmp_path):
+    day = datetime(2025, 5, 22)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    cache = DBCache(str(data), str(staging), str(scratch))
+
+    try:
+        cache.add_trajectory(_trajectory_for(day, 'nursery'))
+        cache.checkpoint()
+        public_path = data / '2025' / '2025-142.sqlite'
+        assert public_path.exists()
+        assert _count_rows(public_path) == 1
+        assert not (staging / '2025' / '2025-142.sqlite').exists()
+    finally:
+        cache.close()
+
+
+def test_end_of_day_promotes_nursery_to_staging_and_publishes(tmp_path):
+    day = datetime(2025, 5, 22)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    cache = DBCache(str(data), str(staging), str(scratch))
+
+    try:
+        cache.add_trajectory(_trajectory_for(day, 'nursery'))
+        cache.end_of_day(day)
+        staging_path = staging / '2025' / '2025-142.sqlite'
+        public_path = data / '2025' / '2025-142.sqlite'
+        assert staging_path.exists()
+        assert public_path.exists()
+        assert _count_rows(staging_path) == 1
+        assert _count_rows(public_path) == 1
+    finally:
+        cache.close()
+
+
+def test_close_promotes_nursery_to_staging_without_deleting_it(tmp_path):
+    day = datetime(2025, 5, 22)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    cache = DBCache(str(data), str(staging), str(scratch))
+
+    cache.add_trajectory(_trajectory_for(day, 'nursery'))
+    cache.close()
+
+    staging_path = staging / '2025' / '2025-142.sqlite'
+    public_path = data / '2025' / '2025-142.sqlite'
+    assert staging_path.exists()
+    assert public_path.exists()
+    assert _count_rows(staging_path) == 1

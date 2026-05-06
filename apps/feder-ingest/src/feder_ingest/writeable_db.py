@@ -16,7 +16,11 @@ class WritableDB(DB):
             data_dir, ref_date,
             must_exist=False, in_memory=in_memory, read_only=False
         )
-        self.conn.execute("PRAGMA journal_mode=WAL;")
+        if self.in_memory:
+            self.conn.execute('PRAGMA journal_mode=OFF;')
+            self.conn.execute('PRAGMA synchronous=OFF;')
+        else:
+            self.conn.execute('PRAGMA journal_mode=WAL;')
         if self.created:
             self._create_db()
 
@@ -57,9 +61,6 @@ class WritableDB(DB):
               ON trajectories(source, source_id)
           """)
 
-        if self.in_memory:
-            cur.execute('PRAGMA journal_mode = OFF')
-            cur.execute('PRAGMA synchronous = OFF')
 
     def add_trajectory(
             self,
