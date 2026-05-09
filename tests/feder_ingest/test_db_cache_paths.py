@@ -413,13 +413,57 @@ def test_startup_temp_cleanup_removes_import_export_temps(tmp_path):
     importing = staging_year / '.2025-142.sqlite.importing.123'
     exporting = data_year / '.2025-142.sqlite.exporting.123'
     scratch_tmp = export_scratch / '2025-142.export.123.sqlite'
+    non_temp_file = export_scratch / 'keep-me.txt'
     for path in (importing, exporting, scratch_tmp):
         path.write_text('temp')
+    non_temp_file.write_text('keep')
 
     cache = DBCache(str(data), str(staging), str(scratch))
     try:
         assert not importing.exists()
         assert not exporting.exists()
         assert not scratch_tmp.exists()
+        assert non_temp_file.exists()
     finally:
         cache.close()
+
+
+def test_evicted_touched_staged_connection_commits_pending_writes(tmp_path):
+    day1 = datetime(2025, 5, 22)
+    day2 = datetime(2025, 5, 23)
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    _make_db(staging, day1, 'staging')
+    _make_db(staging, day2, 'staging')
+
+    cache = DBCache(str(data), str(staging), str(scratch), connection_cache_size=1)
+    try:
+        db1 = cache.connect(day1)
+        db1.add_trajectory(_trajectory_for(day1, 'pending'), commit=False)
+        cache._mark_touched(db1)
+
+        cache.connect(day2)
+
+        assert _count_rows(staging / '2025' / '2025-142.sqlite') == 2
+    finally:
+        cache.close()
+
+
+def test_open_raw_staging_connection_does_not_fallback_when_staging_missing(tmp_path):
+    data = tmp_path / 'data'
+    staging = tmp_path / 'staging'
+    scratch = tmp_path / 'scratch'
+    data.mkdir()
+    staging_2025 = staging / '2025'
+    staging_2025.mkdir(parents=True)
+
+    cache = DBCache(str(data), str(staging), str(scratch))
+    missing = staging_2025 / '2025-142.sqlite'
+
+    with pytest.raises(RuntimeError, match='read-only mode'):
+        cache._open_raw_staging_connection(str(missing))
+
+    assert not missing.exists()
+    cache.close()

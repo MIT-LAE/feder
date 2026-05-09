@@ -21,7 +21,7 @@ ConnectionCache = LastUpdatedOrderedDict[date, WritableDB]
 
 
 class DBCache:
-    """"LRU cache of writable database connections."""
+    """LRU cache of writable database connections."""
 
     def __init__(
             self,
@@ -65,7 +65,7 @@ class DBCache:
     def _startup_cleanup(self) -> None:
         for path in glob.glob(os.path.join(self.staging_dir, '????', '.*.sqlite.importing.*')):
             self._remove_temp_file(path)
-        for path in glob.glob(os.path.join(self.export_scratch_dir, '*')):
+        for path in glob.glob(os.path.join(self.export_scratch_dir, '*.export.*.sqlite')):
             self._remove_temp_file(path)
         for path in glob.glob(os.path.join(self.data_dir, '????', '.*.sqlite.exporting.*')):
             self._remove_temp_file(path)
@@ -140,7 +140,9 @@ class DBCache:
         if len(self._nursery) > self.nursery_size:
             self.commit(force=True)
             evict_date = next(iter(self._nursery))
-            self._promote((evict_date, self._nursery[evict_date]))
+            nursery = self._nursery[evict_date]
+            self._promote((evict_date, nursery))
+            nursery.close()
             del self._nursery[evict_date]
         return conn
 
@@ -210,8 +212,18 @@ class DBCache:
                 pass
 
     def _evict_staged_connections(self) -> None:
-        if len(self._connections) > self.connection_cache_size:
-            _, conn = self._connections.popitem(last=False)
+        while len(self._connections) > self.connection_cache_size:
+            oldest_day, conn = self._connections.popitem(last=False)
+            if oldest_day in self._touched:
+                self._connections[oldest_day] = conn
+                self.commit(force=True)
+                if oldest_day in self._touched:
+                    raise RuntimeError(
+                        f'failed to commit staged database {oldest_day.strftime("%Y-%j")} '
+                        'before cache eviction'
+                    )
+                continue
+
             conn.close()
 
     def _promote(self, date_db: tuple[date, WritableDB]) -> None:
@@ -292,9 +304,10 @@ class DBCache:
         uri = f'file:{staging_path}?mode=ro'
         try:
             return sqlite3.connect(uri, uri=True)
-        except sqlite3.Error:
-            logger.debug('failed to open staged database read-only; falling back to read-write', exc_info=True)
-            return sqlite3.connect(staging_path)
+        except sqlite3.Error as exc:
+            raise RuntimeError(
+                f'failed to open staged database in read-only mode for export: {staging_path}'
+            ) from exc
 
     def _finalize_idle(self, now: datetime) -> None:
         for day, last_update in list(self._last_update.items()):
