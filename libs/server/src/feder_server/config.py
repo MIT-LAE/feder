@@ -13,6 +13,38 @@ from feder_common import DataSource
 logger = logging.getLogger(__name__)
 
 
+def validate_path_roots(paths: dict[str, str]) -> None:
+    """Validate that configured filesystem roots are distinct and unnested.
+
+    The paths do not need to exist.  Comparisons use absolute, normalized path
+    strings so that obvious relative-path aliases are caught without creating
+    directories during configuration parsing.
+    """
+    normalized = {
+        name: os.path.normcase(os.path.abspath(os.path.expanduser(path)))
+        for name, path in paths.items()
+    }
+
+    names = list(normalized)
+    for i, left_name in enumerate(names):
+        left = normalized[left_name]
+        for right_name in names[i + 1:]:
+            right = normalized[right_name]
+            common = os.path.commonpath([left, right])
+            if left == right:
+                raise ValueError(
+                    f'path roots "{left_name}" and "{right_name}" must be distinct'
+                )
+            if common == left:
+                raise ValueError(
+                    f'path root "{right_name}" must not be nested inside "{left_name}"'
+                )
+            if common == right:
+                raise ValueError(
+                    f'path root "{left_name}" must not be nested inside "{right_name}"'
+                )
+
+
 class Config:
     def __init__(self, config_file: str | None = None, config_text: str | None = None):
         if config_text is None:
@@ -64,7 +96,13 @@ class Config:
 
     def _init_paths(self):
         self.data_directory: str = self._get_str('paths', 'data-directory')
+        self.staging_directory: str = self._get_str('paths', 'staging-directory')
         self.scratch_directory: str = self._get_str('paths', 'scratch-directory')
+        validate_path_roots({
+            'paths/data-directory': self.data_directory,
+            'paths/staging-directory': self.staging_directory,
+            'paths/scratch-directory': self.scratch_directory,
+        })
 
     def _init_rabbitmq(self):
         self.rabbitmq_host: str = self._get_str('rabbitmq', 'host')
@@ -79,6 +117,12 @@ class Config:
         )
         self.ingester_prometheus_port: int = self._get_int(
             'ingester', 'prometheus-port'
+        )
+        self.ingester_export_interval: Timedelta = self._get_interval(
+            'ingester', 'export-interval', default=_td(Timedelta('1 hour'))
+        )
+        self.ingester_finalize_after: Timedelta = self._get_interval(
+            'ingester', 'finalize-after', default=_td(Timedelta('12 hours'))
         )
         self._source_prometheus_ports: dict[DataSource, int | None] = self._get_sources_opt_int('prometheus-port')
         self.mailjet_api_key = self._get_str('mailjet', 'api_key')

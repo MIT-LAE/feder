@@ -2,7 +2,16 @@
 # requirements of the constructor of the Pandas Timedelta type.
 
 [paths]
+# Public, client-visible SQLite snapshots. The ingester publishes here only by
+# hidden-copy + atomic rename and does not mutate these SQLite files directly.
 data-directory = "/big/mcast/data/feder"
+
+# Durable local ingester storage for mutable SQLite databases. Must survive
+# ingester restarts. Must be distinct from and not nested inside data/scratch.
+staging-directory = "/local/durable/feder-staging"
+
+# Ephemeral scratch storage. The ingester uses scratch/ingester-export for
+# temporary clean snapshots; scratch may be cleared between restarts.
 scratch-directory = "/big/mcast/data/feder-scratch"
 
 [rabbitmq]
@@ -21,6 +30,8 @@ to_name = "State of Feder"
 
 [ingester]
 prometheus-port = 19001
+export-interval = "1 hour"
+finalize-after = "12 hours"
 
 [sources]
 # Defaults for all sources.
