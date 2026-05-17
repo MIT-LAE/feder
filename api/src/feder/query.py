@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import os
 from typing import Generator
 
@@ -238,6 +238,30 @@ class FlightQuery:
                     self._filter_waypoints
             ):
                 yield traj
+
+def stream_trajectories(
+        day: date,
+        batch_size: int = 1000,
+) -> Generator[Trajectory, None, None]:
+    """Stream all trajectories for one day.
+
+    The data directory is read from the `FEDER_DATA_DIR` environment variable.
+    Trajectories are processed in batches to keep memory use bounded. No
+    ordering guarantee is part of the public API.
+    """
+    if not isinstance(day, date) or isinstance(day, datetime):
+        raise TypeError('day must be a datetime.date')
+
+    data_dir = os.environ.get('FEDER_DATA_DIR')
+    if data_dir is None:
+        raise ValueError('environment variable FEDER_DATA_DIR must be set')
+
+    db = DB(data_dir, day)
+    try:
+        yield from db.stream_trajectories(batch_size=batch_size)
+    finally:
+        db.close()
+
 
 def get_flights(
         time1: datetime, time2: datetime,

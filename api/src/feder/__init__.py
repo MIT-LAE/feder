@@ -96,7 +96,7 @@ below for details.
 
 """
 
-from .query import get_flights, FlightQuery  # noqa
+from .query import get_flights, FlightQuery, stream_trajectories  # noqa
 from .available import available_days, available_times, available_sources  # noqa
 from .common.models import DataSource, Point, Trajectory  # noqa
 from .common.db import BoundingBox, TemporalQueryType, SpatialQueryType  # noqa
@@ -108,6 +108,7 @@ import feder.tutorial  # noqa
 __all__ = [
     'get_flights',
     'FlightQuery',
+    'stream_trajectories',
     'available_days',
     'available_times',
     'available_sources',
