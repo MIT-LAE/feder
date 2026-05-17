@@ -96,9 +96,11 @@ below for details.
 
 """
 
-from .query import get_flights, FlightQuery, stream_trajectories  # noqa
+from .query import (  # noqa
+    get_flights, FlightQuery, stream_trajectories, stream_trajectory_arrays
+)
 from .available import available_days, available_times, available_sources  # noqa
-from .common.models import DataSource, Point, Trajectory  # noqa
+from .common.models import DataSource, Point, Trajectory, TrajectoryArray  # noqa
 from .common.db import BoundingBox, TemporalQueryType, SpatialQueryType  # noqa
 from .common.version import get_feder_version  # noqa
 
@@ -109,12 +111,14 @@ __all__ = [
     'get_flights',
     'FlightQuery',
     'stream_trajectories',
+    'stream_trajectory_arrays',
     'available_days',
     'available_times',
     'available_sources',
     'DataSource',
     'Point',
     'Trajectory',
+    'TrajectoryArray',
     'BoundingBox',
     'TemporalQueryType',
     'SpatialQueryType',

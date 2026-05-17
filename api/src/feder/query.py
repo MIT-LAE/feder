@@ -6,7 +6,8 @@ import os
 from typing import Generator
 
 from feder.common import (
-    DB, DataSource, BoundingBox, TemporalQueryType, SpatialQueryType, Trajectory
+    DB, DataSource, BoundingBox, TemporalQueryType, SpatialQueryType,
+    Trajectory, TrajectoryArray
 )
 
 
@@ -259,6 +260,38 @@ def stream_trajectories(
     db = DB(data_dir, day)
     try:
         yield from db.stream_trajectories(batch_size=batch_size)
+    finally:
+        db.close()
+
+
+def stream_trajectory_arrays(
+        day: date,
+        batch_size: int = 1000,
+        *,
+        native_endian: bool = True,
+        missing_as_nan: bool = True,
+) -> Generator[TrajectoryArray, None, None]:
+    """Stream all trajectories for one day with points as numpy arrays.
+
+    The data directory is read from the `FEDER_DATA_DIR` environment variable.
+    Trajectories are processed in batches to keep memory use bounded. No
+    ordering guarantee is part of the public API. Returned point arrays should
+    be treated as read-only; callers that need to modify them should make a
+    copy.
+    """
+    if not isinstance(day, date) or isinstance(day, datetime):
+        raise TypeError('day must be a datetime.date')
+
+    data_dir = os.environ.get('FEDER_DATA_DIR')
+    if data_dir is None:
+        raise ValueError('environment variable FEDER_DATA_DIR must be set')
+
+    db = DB(data_dir, day)
+    try:
+        yield from db.stream_trajectory_arrays(
+            batch_size=batch_size, native_endian=native_endian,
+            missing_as_nan=missing_as_nan
+        )
     finally:
         db.close()
 

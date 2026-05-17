@@ -15,7 +15,7 @@ from typing import Callable, Generator
 import lz4.frame
 import numpy as np
 
-from .models import DataSource, Point, Trajectory
+from .models import DataSource, Point, Trajectory, TrajectoryArray
 from .utils import MISSING_VALUE
 
 _N_WORKERS = min(8, os.cpu_count() or 4)
@@ -60,6 +60,40 @@ def _process_chunk(
         if arr is not None:
             results.append((row, Point._array_to_points(arr)))
     return results
+
+
+def _prepare_array(
+        blob: bytes,
+        native_endian: bool,
+        missing_as_nan: bool,
+) -> np.ndarray:
+    arr = _process_blob(blob, None, None)
+    assert arr is not None
+    if native_endian:
+        arr = arr.astype(arr.dtype.newbyteorder('='), copy=False)
+    if missing_as_nan:
+        if not arr.flags.writeable:
+            arr = arr.copy()
+        for field in ['alt', 'alt_gnss', 'heading']:
+            values = arr[field]
+            values[values == MISSING_VALUE] = np.nan
+    return arr
+
+
+def _process_array_chunk(
+        rows: list,
+        native_endian: bool,
+        missing_as_nan: bool,
+) -> list[TrajectoryArray]:
+    return [
+        TrajectoryArray(
+            source=DataSource(row[0]), source_id=row[1], transponder_id=row[2],
+            orig=row[3], dest=row[4], callsign=row[5], aircraft_type=row[6],
+            points=_prepare_array(row[7], native_endian, missing_as_nan),
+            partial=False
+        )
+        for row in rows
+    ]
 
 
 class TemporalQueryType(Enum):
@@ -382,6 +416,38 @@ class DB:
         for rows in batched(traj_cur, batch_size):
             yield from self._rows_to_trajectories(list(rows), partial=False)
 
+    def stream_trajectory_arrays(
+            self,
+            batch_size: int = 1000,
+            *,
+            native_endian: bool = True,
+            missing_as_nan: bool = True,
+    ) -> Generator[TrajectoryArray, None, None]:
+        """Yield all trajectories with points as structured numpy arrays.
+
+        Rows are scanned in SQLite row ID order and processed in batches to
+        keep memory use bounded. The ordering is deterministic, but callers
+        should not rely on a particular order as part of the public contract.
+        Point arrays should be treated as read-only; callers that need to
+        modify them should make a copy.
+        """
+        if batch_size < 1:
+            raise ValueError('batch_size must be at least 1')
+
+        traj_cur = self.cursor()
+        traj_cur.execute(
+            """SELECT source, source_id, transponder_id, orig, dest,
+                      callsign, aircraft_type, points
+                 FROM trajectories
+                ORDER BY id"""
+        )
+
+        for rows in batched(traj_cur, batch_size):
+            yield from self._rows_to_trajectory_arrays(
+                list(rows), native_endian=native_endian,
+                missing_as_nan=missing_as_nan
+            )
+
     def _retrieve(
             self,
             pt_conditions: list[tuple[str, object]],
@@ -470,6 +536,26 @@ class DB:
                     callsign=traj_rec[5], aircraft_type=traj_rec[6],
                     points=points, partial=partial
                 )
+
+    def _rows_to_trajectory_arrays(
+            self,
+            rows: list,
+            *,
+            native_endian: bool,
+            missing_as_nan: bool,
+    ) -> Generator[TrajectoryArray, None, None]:
+        # Split into at most N_WORKERS chunks so thread-pool overhead is O(workers)
+        # rather than O(trajectories).  Array preparation runs inside the threads too.
+        n_chunks = min(_N_WORKERS, len(rows))
+        chunk_size = math.ceil(len(rows) / n_chunks)
+        chunks = [rows[i:i + chunk_size] for i in range(0, len(rows), chunk_size)]
+
+        futures = [
+            _pool.submit(_process_array_chunk, chunk, native_endian, missing_as_nan)
+            for chunk in chunks
+        ]
+        for future in futures:
+            yield from future.result()
 
     def _build_sql_conditions(self, conditions, ids, source_ids):
         sql_conditions = [p[0] for p in conditions]

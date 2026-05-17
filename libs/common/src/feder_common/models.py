@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from operator import attrgetter
-from typing import Self
+from typing import Self, cast
 
 import numpy as np
 
@@ -89,8 +89,9 @@ class Point:
         if data is None and unpacker is None:
             raise ValueError('must provide data or unpacker to Point.unpack')
         if unpacker is None:
+            assert data is not None
             unpacker = Unpacker(data)
-        npoints = unpacker('>H')
+        npoints = cast(int, unpacker('>H'))
         if npoints == 0:
             return []
         raw = unpacker._buf.read(npoints * _POINT_DTYPE.itemsize)
@@ -119,6 +120,36 @@ class Point:
             )
             for row in arr
         ]
+
+
+@dataclass(slots=True)
+class TrajectoryArray:
+    """A flight trajectory with points represented as a numpy array.
+
+    This is a lower-level representation intended for bulk processing. The
+    point array fields are `time`, `lon`, `lat`, `alt`, `alt_gnss`, `heading`
+    and `on_ground`. Callers should treat point arrays as read-only and copy
+    them before mutating.
+    """
+
+    source_id: str
+    """The unique source-specific ID of the trajectory."""
+    source: DataSource
+    """The data source for the trajectory."""
+    transponder_id: str
+    """The ADS-B transponder ID of the aircraft."""
+    orig: str | None
+    """The ICAO origin airport code."""
+    dest: str | None
+    """The ICAO destination airport code."""
+    callsign: str
+    """The callsign of the aircraft."""
+    aircraft_type: str | None
+    """The ICAO type of the aircraft."""
+    points: np.ndarray
+    """Structured numpy array of trajectory points."""
+    partial: bool = False
+    """Was the trajectory generated from a query using waypoint filtering?"""
 
 
 @dataclass(slots=True)
@@ -168,14 +199,15 @@ class Trajectory:
         if data is None and unpacker is None:
             raise ValueError('must provide data or unpacker to Trajectory.unpack')
         if unpacker is None:
+            assert data is not None
             unpacker = Unpacker(data)
         return cls(
             source=DataSource(unpacker('>B')),
-            source_id=unpacker.str(),
-            transponder_id=unpacker.str(),
+            source_id=cast(str, unpacker.str()),
+            transponder_id=cast(str, unpacker.str()),
             orig=unpacker.str(),
             dest=unpacker.str(),
-            callsign=unpacker.str(),
+            callsign=cast(str, unpacker.str()),
             aircraft_type=unpacker.str(),
             points=Point.unpack(data=None, unpacker=unpacker)
         )
