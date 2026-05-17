@@ -358,6 +358,30 @@ class DB:
                 ids=list(batch), points_check=points_check
             )
 
+    def stream_trajectories(
+            self,
+            batch_size: int = 1000,
+    ) -> Generator[Trajectory, None, None]:
+        """Yield all trajectories in the database.
+
+        Rows are scanned in SQLite row ID order and processed in batches to
+        keep memory use bounded. The ordering is deterministic, but callers
+        should not rely on a particular order as part of the public contract.
+        """
+        if batch_size < 1:
+            raise ValueError('batch_size must be at least 1')
+
+        traj_cur = self.cursor()
+        traj_cur.execute(
+            """SELECT source, source_id, transponder_id, orig, dest,
+                      callsign, aircraft_type, points
+                 FROM trajectories
+                ORDER BY id"""
+        )
+
+        for rows in batched(traj_cur, batch_size):
+            yield from self._rows_to_trajectories(list(rows), partial=False)
+
     def _retrieve(
             self,
             pt_conditions: list[tuple[str, object]],
@@ -417,6 +441,17 @@ class DB:
         if not rows:
             return
 
+        yield from self._rows_to_trajectories(
+            rows, partial, points_check=points_check, pt_filter=pt_filter
+        )
+
+    def _rows_to_trajectories(
+            self,
+            rows: list,
+            partial: bool,
+            points_check: Callable[[np.ndarray], bool] | None = None,
+            pt_filter: Callable[[np.ndarray], np.ndarray] | None = None,
+    ) -> Generator[Trajectory, None, None]:
         # Split into at most N_WORKERS chunks so thread-pool overhead is O(workers)
         # rather than O(trajectories).  _array_to_points runs inside the threads too.
         n_chunks = min(_N_WORKERS, len(rows))
