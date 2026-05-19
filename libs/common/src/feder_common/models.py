@@ -2,7 +2,7 @@
 
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum
 from operator import attrgetter
 from typing import Self, cast
@@ -150,6 +150,24 @@ class TrajectoryArray:
     """Structured numpy array of trajectory points."""
     partial: bool = False
     """Was the trajectory generated from a query using waypoint filtering?"""
+
+
+@dataclass(slots=True)
+class TrajectoryArrayBatch:
+    """A decoded batch of trajectory arrays from one daily database."""
+
+    day: date
+    """The Feder day represented by the streamed database."""
+    db_path: str
+    """Path to the SQLite database streamed for this batch."""
+    row_count: int
+    """Number of SQLite trajectory rows decoded for this batch."""
+    trajectory_count: int
+    """Number of trajectories yielded in this batch."""
+    point_count: int
+    """Total number of decoded point rows in this batch."""
+    trajectories: tuple[TrajectoryArray, ...]
+    """Decoded trajectories in SQLite row ID order within the batch."""
 
 
 @dataclass(slots=True)

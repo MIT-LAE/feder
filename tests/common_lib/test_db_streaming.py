@@ -6,7 +6,7 @@ import lz4.frame
 import numpy as np
 import pytest
 
-from feder_common import DB, DataSource, Point
+from feder_common import DB, DataSource, Point, TrajectoryArrayBatch
 from feder_common.db import _BLOB_VERSION
 
 
@@ -44,12 +44,22 @@ def test_stream_trajectories_rejects_invalid_batch_size(batch_size):
         db.close()
 
 
-def test_stream_trajectory_arrays_returns_all_rows():
+def test_stream_trajectory_arrays_returns_batches_with_all_rows():
     db = DB(str(DATA_DIR), REF_DATE)
     try:
-        trajectories = list(db.stream_trajectory_arrays())
+        batches = list(db.stream_trajectory_arrays())
+        trajectories = [traj for batch in batches for traj in batch.trajectories]
+        assert sum(batch.row_count for batch in batches) == db.size()
+        assert sum(batch.trajectory_count for batch in batches) == db.size()
         assert len(trajectories) == db.size()
-        assert len(trajectories) > 0
+        assert len(batches) > 0
+        assert all(isinstance(batch, TrajectoryArrayBatch) for batch in batches)
+        assert all(batch.day == REF_DATE for batch in batches)
+        assert all(batch.db_path == db.db_file() for batch in batches)
+        assert all(
+            batch.point_count == sum(len(traj.points) for traj in batch.trajectories)
+            for batch in batches
+        )
         assert all(not traj.partial for traj in trajectories)
         assert all(isinstance(traj.points, np.ndarray) for traj in trajectories)
     finally:
@@ -59,7 +69,10 @@ def test_stream_trajectory_arrays_returns_all_rows():
 def test_stream_trajectory_arrays_small_batch_returns_all_rows():
     db = DB(str(DATA_DIR), REF_DATE)
     try:
-        assert len(list(db.stream_trajectory_arrays(batch_size=1))) == db.size()
+        batches = list(db.stream_trajectory_arrays(batch_size=1))
+        assert len(batches) == db.size()
+        assert all(batch.row_count == 1 for batch in batches)
+        assert sum(batch.trajectory_count for batch in batches) == db.size()
     finally:
         db.close()
 
@@ -77,7 +90,8 @@ def test_stream_trajectory_arrays_rejects_invalid_batch_size(batch_size):
 def test_stream_trajectory_arrays_defaults_to_native_endian():
     db = DB(str(DATA_DIR), REF_DATE)
     try:
-        traj = next(db.stream_trajectory_arrays())
+        batch = next(db.stream_trajectory_arrays())
+        traj = batch.trajectories[0]
         assert traj.points.dtype['time'].byteorder in ('=', '|')
         assert traj.points.dtype['lon'].byteorder in ('=', '|')
     finally:
@@ -87,9 +101,10 @@ def test_stream_trajectory_arrays_defaults_to_native_endian():
 def test_stream_trajectory_arrays_fast_mode_returns_raw_endian():
     db = DB(str(DATA_DIR), REF_DATE)
     try:
-        traj = next(db.stream_trajectory_arrays(
+        batch = next(db.stream_trajectory_arrays(
             native_endian=False, missing_as_nan=False
         ))
+        traj = batch.trajectories[0]
         assert traj.points.dtype['time'].byteorder == '>'
         assert traj.points.dtype['lon'].byteorder == '>'
     finally:
@@ -145,7 +160,11 @@ def test_stream_trajectory_arrays_converts_missing_values_to_nan(tmp_path):
 
     db = DB(str(data_dir), day)
     try:
-        traj = next(db.stream_trajectory_arrays())
+        batch = next(db.stream_trajectory_arrays())
+        traj = batch.trajectories[0]
+        assert batch.row_count == 1
+        assert batch.trajectory_count == 1
+        assert batch.point_count == 2
         assert np.isnan(traj.points['alt'][0])
         assert np.isnan(traj.points['alt_gnss'][0])
         assert np.isnan(traj.points['heading'][0])

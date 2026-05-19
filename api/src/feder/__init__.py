@@ -100,7 +100,9 @@ from .query import (  # noqa
     get_flights, FlightQuery, stream_trajectories, stream_trajectory_arrays
 )
 from .available import available_days, available_times, available_sources  # noqa
-from .common.models import DataSource, Point, Trajectory, TrajectoryArray  # noqa
+from .common.models import (  # noqa
+    DataSource, Point, Trajectory, TrajectoryArray, TrajectoryArrayBatch
+)
 from .common.db import BoundingBox, TemporalQueryType, SpatialQueryType  # noqa
 from .common.version import get_feder_version  # noqa
 
@@ -119,6 +121,7 @@ __all__ = [
     'Point',
     'Trajectory',
     'TrajectoryArray',
+    'TrajectoryArrayBatch',
     'BoundingBox',
     'TemporalQueryType',
     'SpatialQueryType',

@@ -15,7 +15,9 @@ from typing import Callable, Generator
 import lz4.frame
 import numpy as np
 
-from .models import DataSource, Point, Trajectory, TrajectoryArray
+from .models import (
+    DataSource, Point, Trajectory, TrajectoryArray, TrajectoryArrayBatch
+)
 from .utils import MISSING_VALUE
 
 _N_WORKERS = min(8, os.cpu_count() or 4)
@@ -84,8 +86,8 @@ def _process_array_chunk(
         rows: list,
         native_endian: bool,
         missing_as_nan: bool,
-) -> list[TrajectoryArray]:
-    return [
+) -> tuple[TrajectoryArray, ...]:
+    return tuple(
         TrajectoryArray(
             source=DataSource(row[0]), source_id=row[1], transponder_id=row[2],
             orig=row[3], dest=row[4], callsign=row[5], aircraft_type=row[6],
@@ -93,7 +95,7 @@ def _process_array_chunk(
             partial=False
         )
         for row in rows
-    ]
+    )
 
 
 class TemporalQueryType(Enum):
@@ -422,14 +424,14 @@ class DB:
             *,
             native_endian: bool = True,
             missing_as_nan: bool = True,
-    ) -> Generator[TrajectoryArray, None, None]:
-        """Yield all trajectories with points as structured numpy arrays.
+    ) -> Generator[TrajectoryArrayBatch, None, None]:
+        """Yield decoded trajectory-array batches.
 
         Rows are scanned in SQLite row ID order and processed in batches to
-        keep memory use bounded. The ordering is deterministic, but callers
-        should not rely on a particular order as part of the public contract.
-        Point arrays should be treated as read-only; callers that need to
-        modify them should make a copy.
+        keep memory use bounded. Each yielded value corresponds to one SQLite
+        decode chunk. The ordering is deterministic. Point arrays should be
+        treated as read-only; callers that need to modify them should make a
+        copy.
         """
         if batch_size < 1:
             raise ValueError('batch_size must be at least 1')
@@ -443,9 +445,18 @@ class DB:
         )
 
         for rows in batched(traj_cur, batch_size):
-            yield from self._rows_to_trajectory_arrays(
-                list(rows), native_endian=native_endian,
+            row_list = list(rows)
+            trajectories = self._rows_to_trajectory_arrays(
+                row_list, native_endian=native_endian,
                 missing_as_nan=missing_as_nan
+            )
+            yield TrajectoryArrayBatch(
+                day=self.ref_date.date(),
+                db_path=self.db_file(),
+                row_count=len(row_list),
+                trajectory_count=len(trajectories),
+                point_count=sum(len(traj.points) for traj in trajectories),
+                trajectories=trajectories,
             )
 
     def _retrieve(
@@ -543,7 +554,7 @@ class DB:
             *,
             native_endian: bool,
             missing_as_nan: bool,
-    ) -> Generator[TrajectoryArray, None, None]:
+    ) -> tuple[TrajectoryArray, ...]:
         # Split into at most N_WORKERS chunks so thread-pool overhead is O(workers)
         # rather than O(trajectories).  Array preparation runs inside the threads too.
         n_chunks = min(_N_WORKERS, len(rows))
@@ -554,8 +565,10 @@ class DB:
             _pool.submit(_process_array_chunk, chunk, native_endian, missing_as_nan)
             for chunk in chunks
         ]
+        trajectories: list[TrajectoryArray] = []
         for future in futures:
-            yield from future.result()
+            trajectories.extend(future.result())
+        return tuple(trajectories)
 
     def _build_sql_conditions(self, conditions, ids, source_ids):
         sql_conditions = [p[0] for p in conditions]
