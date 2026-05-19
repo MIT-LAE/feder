@@ -428,10 +428,11 @@ class DB:
         """Yield decoded trajectory-array batches.
 
         Rows are scanned in SQLite row ID order and processed in batches to
-        keep memory use bounded. Each yielded value corresponds to one SQLite
-        decode chunk. The ordering is deterministic. Point arrays should be
-        treated as read-only; callers that need to modify them should make a
-        copy.
+        keep memory use bounded. The ordering is deterministic, but callers
+        should not rely on a particular order as part of the public contract.
+        Each yielded value corresponds to one SQLite/decode chunk. Point arrays
+        should be treated as read-only; callers that need to modify them should
+        make a copy.
         """
         if batch_size < 1:
             raise ValueError('batch_size must be at least 1')

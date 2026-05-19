@@ -274,7 +274,8 @@ def stream_trajectory_arrays(
     """Stream decoded trajectory-array batches for one day.
 
     The data directory is read from the `FEDER_DATA_DIR` environment variable.
-    Each yielded value corresponds to one SQLite/decode chunk. Returned point
+    Each yielded value corresponds to one SQLite/decode chunk. Ordering should not
+    be relied upon by callers as part of the public contract. Returned point
     arrays should be treated as read-only; callers that need to modify them
     should make a copy.
     """
