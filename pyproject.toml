@@ -1,6 +1,6 @@
 [project]
 name = "feder-root"
-version = "1.1.0"
+version = "1.2.0"
 description = "LAE flight data collection and access system"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
