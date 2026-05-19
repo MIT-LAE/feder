@@ -7,7 +7,7 @@ from typing import Generator
 
 from feder.common import (
     DB, DataSource, BoundingBox, TemporalQueryType, SpatialQueryType,
-    Trajectory, TrajectoryArray
+    Trajectory, TrajectoryArrayBatch
 )
 
 
@@ -270,14 +270,14 @@ def stream_trajectory_arrays(
         *,
         native_endian: bool = True,
         missing_as_nan: bool = True,
-) -> Generator[TrajectoryArray, None, None]:
-    """Stream all trajectories for one day with points as numpy arrays.
+) -> Generator[TrajectoryArrayBatch, None, None]:
+    """Stream decoded trajectory-array batches for one day.
 
     The data directory is read from the `FEDER_DATA_DIR` environment variable.
-    Trajectories are processed in batches to keep memory use bounded. No
-    ordering guarantee is part of the public API. Returned point arrays should
-    be treated as read-only; callers that need to modify them should make a
-    copy.
+    Each yielded value corresponds to one SQLite/decode chunk. Ordering should not
+    be relied upon by callers as part of the public contract. Returned point
+    arrays should be treated as read-only; callers that need to modify them
+    should make a copy.
     """
     if not isinstance(day, date) or isinstance(day, datetime):
         raise TypeError('day must be a datetime.date')

@@ -2,7 +2,10 @@ from datetime import date, datetime, UTC
 
 import pytest
 
-from feder import TrajectoryArray, stream_trajectories, stream_trajectory_arrays
+from feder import (
+    TrajectoryArray, TrajectoryArrayBatch, stream_trajectories,
+    stream_trajectory_arrays
+)
 from feder.common import DB
 
 
@@ -51,20 +54,34 @@ def test_stream_trajectories_rejects_invalid_batch_size():
         list(stream_trajectories(DAY, batch_size=0))
 
 
-def test_stream_trajectory_arrays_returns_trajectory_arrays():
-    trajectories = list(stream_trajectory_arrays(DAY))
-    assert len(trajectories) > 0
+def test_stream_trajectory_arrays_returns_trajectory_array_batches():
+    batches = list(stream_trajectory_arrays(DAY))
+    trajectories = [traj for batch in batches for traj in batch.trajectories]
+    assert len(batches) > 0
+    assert all(isinstance(batch, TrajectoryArrayBatch) for batch in batches)
+    assert all(batch.day == DAY for batch in batches)
+    assert all(batch.row_count == batch.trajectory_count for batch in batches)
+    assert all(
+        batch.point_count == sum(len(traj.points) for traj in batch.trajectories)
+        for batch in batches
+    )
     assert all(isinstance(traj, TrajectoryArray) for traj in trajectories)
     assert all(not traj.partial for traj in trajectories)
 
 
 def test_stream_trajectory_arrays_count_matches_stream_trajectories():
-    assert len(list(stream_trajectory_arrays(DAY))) == len(list(stream_trajectories(DAY)))
+    batches = list(stream_trajectory_arrays(DAY))
+    streamed_count = sum(batch.trajectory_count for batch in batches)
+    assert streamed_count == len(list(stream_trajectories(DAY)))
 
 
 def test_stream_trajectory_arrays_small_batch_returns_all_rows():
-    expected = len(list(stream_trajectory_arrays(DAY)))
-    assert len(list(stream_trajectory_arrays(DAY, batch_size=1))) == expected
+    expected = sum(
+        batch.trajectory_count for batch in stream_trajectory_arrays(DAY)
+    )
+    batches = list(stream_trajectory_arrays(DAY, batch_size=1))
+    assert len(batches) == expected
+    assert all(batch.row_count == 1 for batch in batches)
 
 
 @pytest.mark.parametrize(

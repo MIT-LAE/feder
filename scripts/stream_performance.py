@@ -58,16 +58,15 @@ def main() -> None:
     waypoint_count = 0
 
     started = perf_counter()
-    for trajectory in stream_trajectory_arrays(
+    for batch in stream_trajectory_arrays(
             day,
             batch_size=args.batch_size,
             native_endian=not args.raw_arrays,
             missing_as_nan=not args.raw_arrays,
     ):
-        trajectory_count += 1
-        waypoint_count += len(trajectory.points)
-        if trajectory_count % args.batch_size == 0:
-            print(f'processed {trajectory_count} trajectories...', file=sys.stderr)
+        trajectory_count += batch.trajectory_count
+        waypoint_count += batch.point_count
+        print(f'processed {trajectory_count} trajectories...', file=sys.stderr)
     elapsed = perf_counter() - started
 
     print(f'database_file: {db_file}')
