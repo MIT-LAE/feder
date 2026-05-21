@@ -1,6 +1,6 @@
 [project]
 name = "feder"
-version = "1.2.0"
+version = "1.2.1"
 description = "Feder flight data system client API"
 readme = "README.md"
 authors = [

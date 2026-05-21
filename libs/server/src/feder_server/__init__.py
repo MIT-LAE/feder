@@ -9,4 +9,4 @@ from .monitoring import *  # noqa
 from .rmq import RMQ, Consumer, RPCEndpoint  # noqa
 from .timers import *  # noqa
 
-__version__ = '1.2.0'
+__version__ = '1.2.1'
