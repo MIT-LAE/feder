@@ -111,6 +111,75 @@ def test_stream_trajectory_arrays_fast_mode_returns_raw_endian():
         db.close()
 
 
+def test_stream_trajectory_arrays_removes_duplicate_timestamps_first_wins(tmp_path):
+    day = date(2025, 1, 1)
+    data_dir = tmp_path / 'data'
+    db_path = data_dir / '2025' / '2025-001.sqlite'
+    db_path.parent.mkdir(parents=True)
+    points = [
+        Point(
+            time=datetime(2025, 1, 1, 0, 0, tzinfo=UTC),
+            lon=-70.0, lat=40.0, alt=1000.0, alt_gnss=None,
+            heading=None, on_ground=False,
+        ),
+        Point(
+            time=datetime(2025, 1, 1, 0, 0, tzinfo=UTC),
+            lon=-71.0, lat=41.0, alt=2000.0, alt_gnss=None,
+            heading=None, on_ground=False,
+        ),
+        Point(
+            time=datetime(2025, 1, 1, 0, 1, tzinfo=UTC),
+            lon=-72.0, lat=42.0, alt=3000.0, alt_gnss=None,
+            heading=None, on_ground=False,
+        ),
+    ]
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """CREATE TABLE trajectories (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              source INTEGER NOT NULL,
+              source_id TEXT NOT NULL,
+              transponder_id TEXT,
+              orig TEXT,
+              dest TEXT,
+              callsign TEXT NOT NULL,
+              aircraft_type TEXT,
+              points BLOB NOT NULL
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO trajectories
+               (source, source_id, transponder_id, orig, dest, callsign,
+                aircraft_type, points)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                DataSource.FLIGHTAWARE.value, 'source-id', 'ABC123', None,
+                None, 'CALL', None,
+                bytes([_BLOB_VERSION]) + lz4.frame.compress(Point.pack(points)),
+            )
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    db = DB(str(data_dir), day)
+    try:
+        batch = next(db.stream_trajectory_arrays())
+        traj = batch.trajectories[0]
+        assert batch.row_count == 1
+        assert batch.trajectory_count == 1
+        assert batch.point_count == 2
+        assert traj.points['time'].tolist() == [
+            int(datetime(2025, 1, 1, 0, 0, tzinfo=UTC).timestamp()),
+            int(datetime(2025, 1, 1, 0, 1, tzinfo=UTC).timestamp()),
+        ]
+        assert traj.points['lon'].tolist() == [-70.0, -72.0]
+        assert traj.points['alt'].tolist() == [1000.0, 3000.0]
+    finally:
+        db.close()
+
+
 def test_stream_trajectory_arrays_converts_missing_values_to_nan(tmp_path):
     day = date(2025, 1, 1)
     data_dir = tmp_path / 'data'

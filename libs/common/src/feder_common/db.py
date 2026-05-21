@@ -71,6 +71,12 @@ def _prepare_array(
 ) -> np.ndarray:
     arr = _process_blob(blob, None, None)
     assert arr is not None
+    if len(arr) > 1:
+        keep = np.empty(len(arr), dtype=bool)
+        keep[0] = True
+        keep[1:] = arr['time'][1:] != arr['time'][:-1]
+        if not keep.all():
+            arr = arr[keep]
     if native_endian:
         arr = arr.astype(arr.dtype.newbyteorder('='), copy=False)
     if missing_as_nan:
