@@ -4,6 +4,7 @@ title: Document file-only receiver-ingester workflow
 status: To Do
 assignee: []
 created_date: '2026-07-13 21:32'
+updated_date: '2026-07-13 21:33'
 labels:
   - file-mode
   - docs
@@ -27,3 +28,16 @@ Document the new NetCDF file-only workflow for running Feder receiver and ingest
 - [ ] #6 Docs mention that no manifest is used and visible atomically published *.nc files are the handoff contract
 - [ ] #7 Docs include a concise description of the NetCDF CF contiguous ragged-array format and version attributes
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Review current receiver, ingester, and configuration documentation to find the right locations for file-only workflow instructions.
+2. Document receiver --file-output-directory usage, historical-only requirements, output directory rules, file naming, and failure semantics.
+3. Document ingester --file-input-directory usage, finite batch behavior, lexicographic processing, ignored files, invalid file behavior, deletion semantics, empty-input retry, and forced final publish.
+4. Add an operator workflow section for cron/Slurm: receiver writes a unique run directory, exits, ingester consumes that directory, and wrappers handle archiving/removal.
+5. Note that concurrent same-directory operation is atomic-safe but not the recommended v1 operating model.
+6. Document optional cluster-mode configuration expectations for RabbitMQ, Prometheus, and Mailjet.
+7. Include a concise NetCDF protocol summary: CF contiguous ragged array, one file per batch, no manifest, lightweight Feder version attributes.
+8. Review docs for consistency with implemented CLI names and tests before marking complete.
+<!-- SECTION:PLAN:END -->
