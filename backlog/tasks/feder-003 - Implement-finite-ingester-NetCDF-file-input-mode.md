@@ -4,6 +4,7 @@ title: Implement finite ingester NetCDF file-input mode
 status: To Do
 assignee: []
 created_date: '2026-07-13 21:31'
+updated_date: '2026-07-13 21:33'
 labels:
   - file-mode
   - ingester
@@ -29,3 +30,17 @@ Add --file-input-directory to feder-ingest. In this finite batch mode, the inges
 - [ ] #8 An empty input directory is a successful no-op that still attempts final dirty staging publish
 - [ ] #9 Tests cover happy path deletion/publication, invalid file retention, empty-directory publish retry, and final-publish failure/retry behavior
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Refactor feder_ingest.processor so RabbitMQ DataMessage handling delegates to a process_trajectory_batch method with unchanged per-trajectory error behavior.
+2. Add DBCache support for forcing final publish of all dirty/touched staged and nursery databases on demand, including empty-input retry after previous publish failure.
+3. Add --file-input-directory CLI option and branch startup before any RMQ or Prometheus-only setup.
+4. Validate input directory existence/type and non-overlap with configured data, staging, and scratch roots.
+5. Implement finite file consumer: list visible *.nc files lexicographically, warn/ignore visible non-NetCDF entries, ignore hidden entries, read each batch, process it, and delete the file only after successful file-level processing.
+6. Handle invalid/unreadable NetCDF by logging, leaving the file in place, stopping before later files, and exiting nonzero.
+7. Ensure final forced publish runs after all files are consumed, including when the directory starts empty.
+8. Add tests for happy path, invalid file retention, empty-directory publish retry, and final-publish failure/retry semantics.
+9. Run focused ingester tests and relevant existing regression tests.
+<!-- SECTION:PLAN:END -->
