@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@pi'
 created_date: '2026-07-13 21:32'
-updated_date: '2026-07-14 13:46'
+updated_date: '2026-07-14 13:47'
 labels:
   - file-mode
   - docs
@@ -42,3 +42,11 @@ Document the new NetCDF file-only workflow for running Feder receiver and ingest
 7. Include a concise NetCDF protocol summary: CF contiguous ragged array, one file per batch, no manifest, lightweight Feder version attributes.
 8. Review docs for consistency with implemented CLI names and tests before marking complete.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+- Added receiver README documentation for finite NetCDF file-output mode, atomic publication, handoff contract, and CF ragged-array format.
+- Added ingester README documentation for finite file-input mode, validation, lexicographic processing, deletion/failure semantics, operator handoff workflow, concurrent same-directory caveat, and NetCDF format.
+- Clarified config template source Prometheus ports are optional for historical receiver file-output jobs.
+<!-- SECTION:NOTES:END -->
