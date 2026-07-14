@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import logging
 import os
+from pathlib import Path
 from queue import PriorityQueue
 import signal
 import sys
@@ -11,13 +12,16 @@ import click
 from prometheus_client import start_http_server
 
 from feder_server import (
-    logging_setup, Config, RX_CONFIG_REQUIREMENTS, rmq_parameters,
+    logging_setup, Config, RX_CONFIG_REQUIREMENTS, FILE_ONLY_CONFIG_REQUIREMENTS,
+    validate_path_roots, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, Message, IngesterLivenessChecker,
     error_counter, set_version
 )
 from feder_server.rmq import RMQ
 
 from .commands import IngesterStatusCommand, RMQCommand
+from .sinks import NetCDFFileTrajectorySink
+from .sources import DateSource, FileSource
 from .sources.contrails_api import ContrailsAPISource
 from .sources.csv import CSVSource
 from .sources.flightaware import FlightAwareSource
@@ -45,6 +49,29 @@ SOURCES_BY_NAME = {s.source_name(): s for s in SOURCES}
 MAX_OUTSTANDING_POSITIONS = 500
 
 
+def _validate_file_output_directory(cfg: Config, directory: str) -> Path:
+    output_directory = Path(directory).expanduser()
+    output_directory.mkdir(parents=True, exist_ok=True)
+    if not output_directory.is_dir():
+        raise ValueError('file output path exists but is not a directory')
+
+    validate_path_roots({
+        'paths/data-directory': str(cfg.data_directory),
+        'paths/staging-directory': str(cfg.staging_directory),
+        'paths/scratch-directory': str(cfg.scratch_directory),
+        'receiver/file-output-directory': str(output_directory),
+    })
+
+    visible_netcdf = [
+        path for path in output_directory.glob('*.nc')
+        if not path.name.startswith('.')
+    ]
+    if len(visible_netcdf) != 0:
+        raise ValueError('file output directory must contain no visible *.nc files at startup')
+
+    return output_directory
+
+
 @click.command()
 @click.option(
     '--debug/--no-debug', default=False,
@@ -70,6 +97,10 @@ MAX_OUTSTANDING_POSITIONS = 500
     '--file-cache',
     help='Path to directory containing downloaded historical files'
 )
+@click.option(
+    '--file-output-directory',
+    help='Write completed historical trajectory batches as atomic NetCDF files in this directory'
+)
 @click.argument(
     'source-name',
     type=click.Choice([s.source_name() for s in SOURCES]),
@@ -81,14 +112,21 @@ def run(
         purge_staging: bool,
         start_time: str | None, end_time: str | None,
         file_cache: str | None,
+        file_output_directory: str | None,
         source_name: str, glob_args: tuple[str, ...]
 ) -> None:
     source = SOURCES_BY_NAME[source_name]
 
     logging_setup(debug)
+    file_output_mode = file_output_directory is not None
 
-    # Process configuration file.
-    cfg = Config(config, requirements=RX_CONFIG_REQUIREMENTS)
+    # Process configuration file. File-output mode is deliberately file-only:
+    # RabbitMQ/ingester sections are not required and RMQ objects are never
+    # constructed.
+    cfg = Config(
+        config,
+        requirements=FILE_ONLY_CONFIG_REQUIREMENTS if file_output_mode else RX_CONFIG_REQUIREMENTS,
+    )
 
     # Are we running in historical mode or live mode? Historical mode means
     # that we need to provide information about the historical period to
@@ -105,6 +143,16 @@ def run(
             'either give start and end times OR list of file globs'
         )
         sys.exit(1)
+    if file_output_mode:
+        if start_time is None or end_time is None:
+            logger.critical('file-output mode requires both "start-time" and "end-time"')
+            sys.exit(1)
+        if len(glob_args) != 0:
+            logger.critical('file-output mode does not support file/glob-only sources in v1')
+            sys.exit(1)
+        if issubclass(source, FileSource) or not issubclass(source, DateSource):
+            logger.critical('file-output mode only supports date-range historical sources in v1')
+            sys.exit(1)
     start_datetime: datetime | None = None
     end_datetime: datetime | None = None
     if start_time is not None and end_time is not None:
@@ -121,6 +169,13 @@ def run(
     if file_cache is not None:
         if not os.path.exists(file_cache):
             logger.critical('provided file cache directory does not exist')
+            sys.exit(1)
+    output_directory = None
+    if file_output_directory is not None:
+        try:
+            output_directory = _validate_file_output_directory(cfg, file_output_directory)
+        except ValueError as exc:
+            logger.critical(str(exc))
             sys.exit(1)
     historical = len(glob_args) != 0 or start_time is not None
 
@@ -192,6 +247,20 @@ def run(
     exception_backoff = 5  # seconds
     while not clean_stop:
         try:
+            if file_output_mode:
+                assert output_directory is not None
+                data_source.start()
+                processor = Processor(
+                    cfg, data_source.SOURCE, name, historical, db, command_queue,
+                    source_control=data_source.control,
+                    trajectory_sink=NetCDFFileTrajectorySink(db, output_directory, name),
+                )
+                processor.run()
+                if not db.is_empty():
+                    raise RuntimeError('file-output mode finished with non-empty receiver staging')
+                clean_stop = True
+                continue
+
             # Set up RabbitMQ handler.
             rmq = RMQ(
                 name=name,
@@ -236,6 +305,8 @@ def run(
             clean_stop = True
         except Exception:
             logger.exception('unhandled exception in receiver')
+            if file_output_mode:
+                sys.exit(1)
             if prom_server is not None:
                 error_counter.labels(source=name).inc()
             this_exception = datetime.now()

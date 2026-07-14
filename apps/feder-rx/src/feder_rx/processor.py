@@ -1,15 +1,14 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 from queue import PriorityQueue
 from threading import Event
 
 from feder_common import DataSource
 from feder_server import (
-    Config, RMQ, Trajectory, TrajectoryBatch,
+    Config, TrajectoryBatch,
     log_counts, ThreadControl, IngesterLivenessResponse
 )
-import feder_server.rmq as rmq
-
+from feder_server.rmq import RMQ
 from .commands import (
     Command,
     SourcePositionCommand, BatchSourcePositionCommand, EndOfDayCommand,
@@ -22,6 +21,7 @@ from .monitoring import (
     latest_fix_time_gauge, last_completion_fix_time_gauge, last_completion_time_gauge,
     ingester_liveness_gauge
 )
+from .sinks import RabbitMQTrajectorySink, TrajectorySink, build_trajectory_batch
 
 
 logger = logging.getLogger(__name__)
@@ -39,9 +39,11 @@ class Processor:
     def __init__(
             self,
             config: Config, source: DataSource, name: str, historical: bool,
-            db: DB, command_queue: PriorityQueue, rmq: RMQ,
-            source_control: ThreadControl,
-            ingester_liveness_interval: int
+            db: DB, command_queue: PriorityQueue,
+            rmq: RMQ | None = None,
+            source_control: ThreadControl | None = None,
+            ingester_liveness_interval: int = 0,
+            trajectory_sink: TrajectorySink | None = None,
     ):
         self.config = config
         self.source = source
@@ -49,7 +51,11 @@ class Processor:
         self.historical = historical
         self.db = db
         self.command_queue = command_queue
-        self.rmq = rmq
+        if trajectory_sink is None:
+            if rmq is None:
+                raise ValueError('rmq is required when no trajectory sink is provided')
+            trajectory_sink = RabbitMQTrajectorySink(db, rmq)
+        self.trajectory_sink = trajectory_sink
         self.data_lag = self.config.data_lag(self.source)
         if self.historical:
             self.data_lag = timedelta(0)
@@ -63,7 +69,6 @@ class Processor:
         self._done_pending = False
         self._final_completion_pending = False
         self._end_of_day_pending = None
-        self._pending_rmq_messages = {}
         self._fix_count_total = 0
         self._fix_count_last_completion = 0
         self._fix_time_latest = datetime(1, 1, 1, tzinfo=timezone.utc)
@@ -85,27 +90,27 @@ class Processor:
         while not self._done and not self._immediate_stop.is_set():
             # If we had got a DONE command and were just waiting for
             # trajectory completion to finish, stop now.
-            if (
-                    self._done_pending and
-                    not self._final_completion_pending and
-                    self.command_queue.empty() and
-                    len(self._trajectories) == 0 and
-                    len(self._pending_rmq_messages) == 0
-            ):
+            if self._ready_to_finish():
                 self._done = True
                 continue
 
-            if len(self._trajectories) != 0 and self.source_control.is_running:
+            if len(self._trajectories) != 0 and self._source_is_running():
                 self._send_trajectories(
                     self._trajectories[:self.TRAJECTORY_BATCH_SIZE]
                 )
                 self._trajectories = self._trajectories[self.TRAJECTORY_BATCH_SIZE:]
+                if self._ready_to_finish():
+                    self._done = True
+                    continue
 
             if (
                     len(self._trajectories) == 0 and
                     self._end_of_day_pending is not None
             ):
                 self._send_end_of_day()
+                if self._ready_to_finish():
+                    self._done = True
+                    continue
 
             try:
                 self._process_one(self.command_queue.get())
@@ -126,6 +131,18 @@ class Processor:
         self._immediate_stop.set()
         if self.command_queue.empty():
             self.command_queue.put(StopCommand())
+
+    def _source_is_running(self) -> bool:
+        return self.source_control is None or self.source_control.is_running
+
+    def _ready_to_finish(self) -> bool:
+        return (
+            self._done_pending and
+            not self._final_completion_pending and
+            self.command_queue.empty() and
+            len(self._trajectories) == 0 and
+            self.trajectory_sink.pending_count() == 0
+        )
 
     def _ok_to_complete(self) -> bool:
         # If there have been a lot of fixes since the last completion, we can
@@ -193,31 +210,15 @@ class Processor:
                 self._source_done(latest_time)
 
             case IngesterStatusCommand() as cmd:
+                if self.source_control is None:
+                    return
                 if self._handle_ingester_status(cmd.response):
                     self.source_control.resume()
                 else:
                     self.source_control.pause()
 
             case RMQCommand() as cmd:
-                match cmd.message:
-                    case rmq.AckMessage(delivery_tag):
-                        # If publication to RabbitMQ was successful, delete all
-                        # position fixes from the database for the related source
-                        # ID and for all earlier delivery tags.
-                        self._process_ack_nack(delivery_tag, delete_trajectories=True)
-
-                    case rmq.NackMessage(delivery_tag):
-                        # If publication to RabbitMQ was unsuccessful, don't
-                        # delete position fixes from the database for the
-                        # related source ID. They will be picked up again in
-                        # the next trajectory completion cycle. (But do clear
-                        # all earlier delivery tags.)
-                        self._process_ack_nack(delivery_tag, delete_trajectories=False)
-
-                    case _:
-                        logger.warning(
-                            'unexpected RMQ message "%s"', cmd.message
-                        )
+                self.trajectory_sink.handle_rmq_message(cmd.message)
 
     def _handle_ingester_status(
             self, response: IngesterLivenessResponse | None
@@ -246,15 +247,6 @@ class Processor:
         self._ingester_trajectory_counts.append(response.last_ingested)
         self._ingester_ref_times.append(datetime.now(timezone.utc))
 
-        # Calculate the moving average ingestion rate.
-        if len(self._ingester_trajectory_counts) > 1:
-            dtraj = self._ingester_trajectory_counts[-1] - self._ingester_trajectory_counts[0]
-            dt = (self._ingester_ref_times[-1] - self._ingester_ref_times[0]).total_seconds()
-            ingester_rate = dtraj / dt
-        else:
-            # Slow start if we don't have enough data to calculate a rate yet.
-            ingester_rate = 50
-
         # Work out how far the ingester is behind and if it's too far, pause
         # the data source.
         delta = self._trajectory_count - self._ingester_trajectory_counts[-1]
@@ -266,20 +258,6 @@ class Processor:
             return False
 
         return True
-
-    def _process_ack_nack(
-            self, delivery_tag: int, delete_trajectories: bool
-    ) -> None:
-        if delivery_tag in self._pending_rmq_messages:
-            to_delete = [
-                tag for tag in self._pending_rmq_messages.keys()
-                if tag <= delivery_tag
-            ]
-            for tag in to_delete:
-                if delete_trajectories:
-                    for source_id in self._pending_rmq_messages[tag]:
-                        self.db.delete_trajectory(source_id)
-                del self._pending_rmq_messages[tag]
 
     def _source_position(self, cmd: SourcePositionCommand) -> int:
         self._fix_time_latest = max(self._fix_time_latest, cmd.time)
@@ -316,44 +294,21 @@ class Processor:
         )
         delta = self._trajectory_count - old_count
 
-        # Process a set of complete trajectories. If this doesn't work, then
-        # the position fixes for the trajectory will remain in the database to
-        # be reprocessed in the next completion cycle.
-        #
-        # A special case here is if a trajectory completion fails in the final
-        # trajectory completion cycle of a historical processing job. (This
-        # case just falls through to the "attempt to remove a non-empty
-        # staging database" error, since there will be position fixes left in
-        # the database when the process exits.)
-        #
-        # The message number from RabbitMQ is saved for publish confirmation
-        # processing.
-        payloads = []
-        for source_id in source_ids:
-            # Retrieve all position fixes from database as data frame.
-            fixes = self.db.get_trajectory(source_id)
-            if len(fixes) == 0:
-                continue
-
-            # Build trajectory payload to send to ingester.
-            payloads.append(Trajectory.build(self.source, source_id, fixes))
+        # Process a set of complete trajectories. If publishing doesn't work,
+        # then position fixes remain in the database to be reprocessed in the
+        # next completion cycle. File sinks use successful atomic publish as
+        # the ACK boundary and delete fixes synchronously after the rename.
+        payload_source_ids, batch = build_trajectory_batch(
+            self.db, self.source, self.name, source_ids, self._trajectory_count
+        )
 
         # Skip empty payloads: these can confuse the ingester, because we use
         # empty trajectory batches to indicate end-of-day.
-        if len(payloads) == 0:
+        if batch is None:
             return
 
-        # Send trajectory payload out over RabbitMQ, returning message number
-        # for ACK/NACK processing.
-        message_number = self.rmq.send(
-            'trajectory', TrajectoryBatch(
-                trajectories=payloads,
-                source=self.name,
-                trajectory_count=self._trajectory_count)
-        )
+        self.trajectory_sink.publish_trajectories(payload_source_ids, batch)
         trajectory_counter.labels(source=self.name).inc(delta)
-        if message_number is not None:
-            self._pending_rmq_messages[message_number] = source_ids
 
     def _identify_complete_trajectories(self, final: bool = False) -> list[str]:
         if final:
@@ -377,12 +332,10 @@ class Processor:
         # end of a day, which allows the ingester to flush the current day's
         # in-memory database to disk.
         assert self._end_of_day_pending is not None
-        message_number = self.rmq.send(
-            'trajectory', TrajectoryBatch(
+        if self.trajectory_sink.supports_end_of_day:
+            self.trajectory_sink.publish_end_of_day(TrajectoryBatch(
                 trajectories=[],
                 source=self.name,
                 trajectory_count=self._end_of_day_pending.toordinal())
-        )
-        if message_number is not None:
-            self._pending_rmq_messages[message_number] = []
+            )
         self._end_of_day_pending = None
