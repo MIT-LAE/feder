@@ -11,7 +11,7 @@ from feder_common import DataSource
 from feder_server import read_trajectory_batch_netcdf
 import feder_rx
 from feder_rx import _validate_file_output_directory
-from feder_rx.commands import SourceDoneCommand, SourcePositionCommand
+from feder_rx.commands import BatchSourcePositionCommand, SourceDoneCommand, SourcePositionCommand
 from feder_rx.db import DB
 from feder_rx.processor import Processor
 from feder_rx.sinks import NetCDFFileTrajectorySink
@@ -190,6 +190,65 @@ def test_file_output_processor_writes_sequence_and_finishes_empty(config, tmp_pa
 
     assert db.is_empty()
     assert [p.name for p in sorted(tmp_path.glob("*.nc"))] == ["rx-file.00000001.nc"]
+
+
+def test_file_output_processor_drains_final_trajectories_without_new_commands(config, tmp_path):
+    count = Processor.TRAJECTORY_BATCH_SIZE + 1
+    processor_holder = []
+    errors = []
+
+    def run_processor():
+        try:
+            db = DB(config, "file-final-drain", historical=True)
+            queue = PriorityQueue()
+            sink = NetCDFFileTrajectorySink(db, tmp_path, "rx-final-drain")
+            processor = Processor(
+                config,
+                DataSource.FLIGHTAWARE,
+                "rx-final-drain",
+                True,
+                db,
+                queue,
+                source_control=None,
+                trajectory_sink=sink,
+            )
+            processor_holder.append(processor)
+            times = [datetime(2025, 4, 1, 12, 0, tzinfo=timezone.utc)] * count
+            queue.put(BatchSourcePositionCommand(
+                source_ids=[f"DUMMY-{i:03d}" for i in range(count)],
+                transponder_ids=["ABCDEF"] * count,
+                times=times,
+                origs=["DUMA"] * count,
+                dests=["DUMZ"] * count,
+                callsigns=["DUMMY"] * count,
+                aircraft_types=[None] * count,
+                lats=[41.0] * count,
+                lons=[-95.0] * count,
+                alts=[35000] * count,
+                alts_gnss=[None] * count,
+                headings=[None] * count,
+                on_grounds=[False] * count,
+            ))
+            queue.put(SourceDoneCommand(datetime(2025, 4, 1, 12, 0, tzinfo=timezone.utc)))
+            processor.run()
+            if not db.is_empty():
+                errors.append("staging database was not drained")
+        except Exception as exc:
+            errors.append(str(exc))
+
+    runner = Thread(target=run_processor)
+    runner.start()
+    runner.join(timeout=2)
+    if runner.is_alive():
+        processor_holder[0].immediate_stop()
+        runner.join(timeout=2)
+        pytest.fail("processor blocked with final trajectories still queued")
+    assert errors == []
+
+    files = sorted(tmp_path.glob("*.nc"))
+    assert [p.name for p in files] == ["rx-final-drain.00000001.nc"]
+    batch = read_trajectory_batch_netcdf(files[0])
+    assert len(batch.trajectories) == count
 
 
 def test_file_output_cli_requires_historical_range_and_rejects_file_sources(tmp_path):

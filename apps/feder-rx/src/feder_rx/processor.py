@@ -103,6 +103,8 @@ class Processor:
                 if self._ready_to_finish():
                     self._done = True
                     continue
+                if self.command_queue.empty():
+                    continue
 
             if (
                     len(self._trajectories) == 0 and
