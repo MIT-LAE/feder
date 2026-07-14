@@ -6,6 +6,7 @@ from .messages import *  # noqa
 from .messaging import *  # noqa
 from .models import *  # noqa
 from .monitoring import *  # noqa
+from .netcdf import *  # noqa
 from .rmq import RMQ, Consumer, RPCEndpoint  # noqa
 from .timers import *  # noqa
 
