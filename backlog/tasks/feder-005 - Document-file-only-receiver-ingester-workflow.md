@@ -1,10 +1,11 @@
 ---
 id: FEDER-005
 title: Document file-only receiver-ingester workflow
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@pi'
 created_date: '2026-07-13 21:32'
-updated_date: '2026-07-13 21:33'
+updated_date: '2026-07-14 13:46'
 labels:
   - file-mode
   - docs
