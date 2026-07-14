@@ -1,10 +1,11 @@
 ---
 id: FEDER-001
 title: Add shared NetCDF trajectory-batch file protocol
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@pi'
 created_date: '2026-07-13 21:31'
-updated_date: '2026-07-13 21:33'
+updated_date: '2026-07-14 08:22'
 labels:
   - file-mode
   - netcdf
