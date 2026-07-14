@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@pi'
 created_date: '2026-07-13 21:31'
-updated_date: '2026-07-14 08:47'
+updated_date: '2026-07-14 08:51'
 labels:
   - file-mode
   - config
@@ -40,3 +40,13 @@ Allow Feder receiver and ingester file-only modes to run on cluster systems with
 6. Add tests for file-only configs omitting rabbitmq, prometheus/monitoring, and mailjet sections, plus regression tests that normal RabbitMQ modes still fail clearly when required config is missing.
 7. Update config template comments if needed to describe optional sections.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+- Added ConfigRequirements and named requirement profiles for strict/default, file-only, receiver, ingester, and state-of-feder modes.
+- Updated feder-rx/feder-ingest to stop requiring Mailjet; feder-rx also no longer requires ingester Prometheus config.
+- Updated state-of-feder to require Mailjet only, not RabbitMQ/ingester Prometheus.
+- Added config tests covering omitted rabbitmq, ingester prometheus-port, and mailjet sections for mode-specific requirements, plus live RabbitMQ missing-config regression.
+- Updated config.toml.template comments to document optional sections for file-only workflows.
+<!-- SECTION:NOTES:END -->
