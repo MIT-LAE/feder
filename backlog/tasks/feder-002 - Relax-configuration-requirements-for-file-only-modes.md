@@ -1,11 +1,11 @@
 ---
 id: FEDER-002
 title: Relax configuration requirements for file-only modes
-status: In Progress
+status: Done
 assignee:
   - '@pi'
 created_date: '2026-07-13 21:31'
-updated_date: '2026-07-14 08:51'
+updated_date: '2026-07-14 13:44'
 labels:
   - file-mode
   - config
@@ -22,7 +22,7 @@ Allow Feder receiver and ingester file-only modes to run on cluster systems with
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 Config loading supports mode-specific requirements so file-only rx/ingest do not require rabbitmq keys
-- [ ] #2 feder-ingest --file-input-directory does not require Prometheus configuration and does not start a Prometheus server by default
+- [x] #2 feder-ingest --file-input-directory does not require Prometheus configuration and does not start a Prometheus server by default
 - [x] #3 Mailjet configuration is not required by feder-rx or feder-ingest runs and remains required only where actually used
 - [x] #4 File-only modes accept the shared Feder path configuration needed by the ingester and validate configured roots as before
 - [x] #5 Normal RabbitMQ receiver and ingester modes retain existing RabbitMQ behavior and fail clearly when required RabbitMQ configuration is missing
@@ -49,4 +49,22 @@ Allow Feder receiver and ingester file-only modes to run on cluster systems with
 - Updated state-of-feder to require Mailjet only, not RabbitMQ/ingester Prometheus.
 - Added config tests covering omitted rabbitmq, ingester prometheus-port, and mailjet sections for mode-specific requirements, plus live RabbitMQ missing-config regression.
 - Updated config.toml.template comments to document optional sections for file-only workflows.
+
+Follow-up check: AC #2 is covered by tests/feder_ingest/test_file_input_mode.py::test_file_input_happy_path_deletes_inputs_publishes_and_skips_rmq, which monkeypatches start_http_server to fail and verifies --file-input-directory succeeds without starting Prometheus. Marking the missed acceptance criterion complete.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Relaxed configuration requirements for file-only Feder modes.
+
+Changes:
+- Added mode-specific ConfigRequirements profiles so file-only receiver/ingester runs do not require RabbitMQ, ingester Prometheus, or Mailjet sections.
+- Updated receiver, ingester, and state-of-feder config loading to require only the sections each mode uses.
+- Ensured ingester --file-input-directory runs without starting Prometheus by default.
+- Preserved strict RabbitMQ requirements for normal live/RMQ modes.
+- Documented optional config sections for file-only workflows and added config/CLI coverage for omitted sections.
+
+Tests:
+- Existing config and file-input tests cover omitted rabbitmq/prometheus/mailjet sections and no-Prometheus startup in file-input mode.
+<!-- SECTION:FINAL_SUMMARY:END -->
