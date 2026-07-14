@@ -1,9 +1,11 @@
 ---
 id: FEDER-006
 title: Aggregate receiver NetCDF file-output batches
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@pi'
 created_date: '2026-07-14 14:17'
+updated_date: '2026-07-14 14:17'
 labels: []
 dependencies: []
 ---
