@@ -26,3 +26,15 @@ Aggregate multiple receiver trajectory batches into larger NetCDF files in file-
 - [ ] #6 Tests cover aggregation threshold behavior, final partial flush, CLI option wiring, and existing atomic failure behavior
 - [ ] #7 Receiver documentation describes aggregation, default sizing, final flush, and failure/rerun semantics
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add a TrajectorySink finalization hook and wire Processor shutdown to call it exactly once after queued trajectories are drained but before file-output mode verifies empty staging. Keep RabbitMQ finalization as a no-op.
+2. Refactor NetCDFFileTrajectorySink to buffer materialized Trajectory objects, source IDs, and the latest cumulative trajectory_count. On publish_trajectories, append the incoming batch, delete corresponding staging rows after successful buffering, and flush when buffered trajectory count reaches or exceeds max_trajectories.
+3. Preserve existing atomic NetCDF publish logic by moving it into a private _publish_buffer/_write_batch helper that writes hidden temp files, fsyncs best-effort, atomically renames, fsyncs the directory, increments sequence numbers, and cleans temp files on failure.
+4. Add --file-output-max-trajectories to feder-rx as a click.IntRange(min=1) option with default 10000, and pass it into NetCDFFileTrajectorySink only for file-output mode.
+5. Update tests in tests/feder_rx/test_file_output_mode.py to cover threshold aggregation, final partial flush, latest cumulative trajectory_count, staging deletion after buffering, CLI option wiring/validation, and that atomic write failure still leaves no visible corrupt file.
+6. Update apps/feder-rx/README.md to document aggregation, default sizing, final flush, and failure/rerun semantics for successful vs failed receiver runs.
+7. Run focused receiver and NetCDF tests, then mark acceptance criteria complete and add implementation notes/final summary if implementation proceeds.
+<!-- SECTION:PLAN:END -->
