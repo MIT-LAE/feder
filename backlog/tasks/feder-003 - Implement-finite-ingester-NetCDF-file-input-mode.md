@@ -1,10 +1,11 @@
 ---
 id: FEDER-003
 title: Implement finite ingester NetCDF file-input mode
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@pi'
 created_date: '2026-07-13 21:31'
-updated_date: '2026-07-13 21:33'
+updated_date: '2026-07-14 10:31'
 labels:
   - file-mode
   - ingester
