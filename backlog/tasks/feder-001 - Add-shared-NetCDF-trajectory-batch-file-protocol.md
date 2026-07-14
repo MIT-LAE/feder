@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@pi'
 created_date: '2026-07-13 21:31'
-updated_date: '2026-07-14 08:28'
+updated_date: '2026-07-14 08:36'
 labels:
   - file-mode
   - netcdf
@@ -54,6 +54,8 @@ Validation run:
 - uv run pyright libs/server/src/feder_server/netcdf.py
 
 Note: full tests/server_lib includes RabbitMQ integration tests that fail in this environment because no local RabbitMQ broker is listening on localhost:5672.
+
+Re-ran full server_lib tests after RabbitMQ broker was started: uv run pytest tests/server_lib -q passed (15 passed).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
@@ -76,4 +78,7 @@ Tests:
 
 Caveat:
 - Full tests/server_lib was not fully runnable here because RabbitMQ integration tests require a local broker on localhost:5672.
+
+Follow-up validation:
+- uv run pytest tests/server_lib -q (15 passed with RabbitMQ broker running)
 <!-- SECTION:FINAL_SUMMARY:END -->
