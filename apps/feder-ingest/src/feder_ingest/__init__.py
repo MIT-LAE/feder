@@ -8,7 +8,7 @@ import click
 from prometheus_client import start_http_server
 
 from feder_server import (
-    logging_setup, Config, rmq_parameters,
+    logging_setup, Config, INGEST_CONFIG_REQUIREMENTS, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE,
     IngesterLivenessChecker, Message, TrajectoryBatch,
     error_counter, set_version, TimerThread
@@ -48,7 +48,7 @@ def run(debug: bool, config: str | None) -> None:
     logging_setup(debug)
 
     # Process configuration file.
-    cfg = Config(config)
+    cfg = Config(config, requirements=INGEST_CONFIG_REQUIREMENTS)
 
     # Start Prometheus HTTP server.
     prom_server, prom_thread = start_http_server(cfg.ingester_prometheus_port)

@@ -14,12 +14,15 @@ staging-directory = "/local/durable/feder-staging"
 # temporary clean snapshots; scratch may be cleared between restarts.
 scratch-directory = "/big/mcast/data/feder-scratch"
 
+# Required for live RabbitMQ receiver/ingester modes. Omit in finite
+# file-only workflows that use receiver file output and ingester file input.
 [rabbitmq]
 host = "g01"
 port = 5672
 username = "feder"
 password = "dflksjdflkjsd"
 
+# Required only by state-of-feder email reporting; rx/ingest do not need it.
 [mailjet]
 api_key = "<fill in API key>"
 secret_key = "<fill in secret key>"
@@ -29,6 +32,8 @@ to_email = "state-of-feder@mit.edu"
 to_name = "State of Feder"
 
 [ingester]
+# Required for live RabbitMQ ingester mode. File-input ingester mode may omit
+# prometheus-port and will not start a Prometheus server by default.
 prometheus-port = 19001
 export-interval = "1 hour"
 finalize-after = "12 hours"

@@ -2,6 +2,7 @@ import os
 import logging
 import sys
 import tomllib
+from dataclasses import dataclass
 from typing import Any
 
 from pandas import NaT, Timedelta
@@ -45,8 +46,46 @@ def validate_path_roots(paths: dict[str, str]) -> None:
                 )
 
 
+@dataclass(frozen=True)
+class ConfigRequirements:
+    """Configuration sections required by a particular Feder command mode."""
+
+    rabbitmq: bool = True
+    ingester_prometheus: bool = True
+    mailjet: bool = True
+
+
+STRICT_CONFIG_REQUIREMENTS = ConfigRequirements()
+FILE_ONLY_CONFIG_REQUIREMENTS = ConfigRequirements(
+    rabbitmq=False,
+    ingester_prometheus=False,
+    mailjet=False,
+)
+RX_CONFIG_REQUIREMENTS = ConfigRequirements(
+    rabbitmq=True,
+    ingester_prometheus=False,
+    mailjet=False,
+)
+INGEST_CONFIG_REQUIREMENTS = ConfigRequirements(
+    rabbitmq=True,
+    ingester_prometheus=True,
+    mailjet=False,
+)
+STATE_OF_FEDER_CONFIG_REQUIREMENTS = ConfigRequirements(
+    rabbitmq=False,
+    ingester_prometheus=False,
+    mailjet=True,
+)
+
+
 class Config:
-    def __init__(self, config_file: str | None = None, config_text: str | None = None):
+    def __init__(
+            self,
+            config_file: str | None = None,
+            config_text: str | None = None,
+            requirements: ConfigRequirements = STRICT_CONFIG_REQUIREMENTS,
+    ):
+        self.requirements = requirements
         if config_text is None:
             config_file = config_file or os.environ.get('FEDER_CONFIG')
             if config_file is None:
@@ -105,6 +144,13 @@ class Config:
         })
 
     def _init_rabbitmq(self):
+        if not self.requirements.rabbitmq:
+            self.rabbitmq_host = None
+            self.rabbitmq_port = None
+            self.rabbitmq_username = None
+            self.rabbitmq_password = None
+            return
+
         self.rabbitmq_host: str = self._get_str('rabbitmq', 'host')
         self.rabbitmq_port: int = self._get_int('rabbitmq', 'port', default=5672)
         self.rabbitmq_username: str = self._get_str('rabbitmq', 'username')
@@ -115,7 +161,9 @@ class Config:
             'monitoring', 'prometheus-scrape-interval',
             default=_td(Timedelta('60 seconds'))
         )
-        self.ingester_prometheus_port: int = self._get_int(
+        self.ingester_prometheus_port: int | None = self._get_int(
+            'ingester', 'prometheus-port'
+        ) if self.requirements.ingester_prometheus else self._get_opt_int(
             'ingester', 'prometheus-port'
         )
         self.ingester_export_interval: Timedelta = self._get_interval(
@@ -125,12 +173,20 @@ class Config:
             'ingester', 'finalize-after', default=_td(Timedelta('12 hours'))
         )
         self._source_prometheus_ports: dict[DataSource, int | None] = self._get_sources_opt_int('prometheus-port')
-        self.mailjet_api_key = self._get_str('mailjet', 'api_key')
-        self.mailjet_secret_key = self._get_str('mailjet', 'secret_key')
-        self.from_email = self._get_str('mailjet', 'from_email')
-        self.from_name = self._get_str('mailjet', 'from_name')
-        self.to_email = self._get_str('mailjet', 'to_email')
-        self.to_name = self._get_str('mailjet', 'to_name')
+        if self.requirements.mailjet:
+            self.mailjet_api_key = self._get_str('mailjet', 'api_key')
+            self.mailjet_secret_key = self._get_str('mailjet', 'secret_key')
+            self.from_email = self._get_str('mailjet', 'from_email')
+            self.from_name = self._get_str('mailjet', 'from_name')
+            self.to_email = self._get_str('mailjet', 'to_email')
+            self.to_name = self._get_str('mailjet', 'to_name')
+        else:
+            self.mailjet_api_key = None
+            self.mailjet_secret_key = None
+            self.from_email = None
+            self.from_name = None
+            self.to_email = None
+            self.to_name = None
 
     def _init_sources(self):
         def_comp_delay: Timedelta = self._get_interval(

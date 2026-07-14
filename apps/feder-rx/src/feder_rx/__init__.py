@@ -11,7 +11,7 @@ import click
 from prometheus_client import start_http_server
 
 from feder_server import (
-    logging_setup, Config, rmq_parameters,
+    logging_setup, Config, RX_CONFIG_REQUIREMENTS, rmq_parameters,
     RMQ_TRAJECTORY_EXCHANGE, Message, IngesterLivenessChecker,
     error_counter, set_version
 )
@@ -88,7 +88,7 @@ def run(
     logging_setup(debug)
 
     # Process configuration file.
-    cfg = Config(config)
+    cfg = Config(config, requirements=RX_CONFIG_REQUIREMENTS)
 
     # Are we running in historical mode or live mode? Historical mode means
     # that we need to provide information about the historical period to

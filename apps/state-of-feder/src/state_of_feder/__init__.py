@@ -3,7 +3,7 @@ import os
 
 import click
 
-from feder_server import logging_setup, Config
+from feder_server import logging_setup, Config, STATE_OF_FEDER_CONFIG_REQUIREMENTS
 
 from .data import retrieve_data
 from .email import send_email
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 def run(debug: bool, config: str | None) -> None:
     logging_setup(debug)
 
-    cfg = Config(config)
+    cfg = Config(config, requirements=STATE_OF_FEDER_CONFIG_REQUIREMENTS)
     os.environ['FEDER_DATA_DIR'] = cfg.data_directory
 
     send_email(cfg, retrieve_data(cfg))
