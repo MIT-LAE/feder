@@ -267,6 +267,27 @@ class DBCache:
                     logger.exception('failed to export staged database: %s', day.strftime('%Y-%j'))
         self._finalize_idle(now)
 
+    def force_publish(self) -> None:
+        """Commit and publish every pending database without throttling.
+
+        This is used by finite batch modes before process exit.  Non-empty
+        nursery databases are first promoted to durable staging, then every
+        dirty staged database (including dirty databases recovered at startup)
+        is exported to public data.  Export failures are deliberately allowed
+        to propagate so callers can exit non-zero and leave staging retryable.
+        """
+        self.commit(force=True)
+
+        for date_db in list(self._nursery.items()):
+            day, db = date_db
+            if db.size() > 0:
+                self._promote(date_db)
+            db.close()
+            del self._nursery[day]
+
+        for day in list(self._dirty):
+            self._export_staged(day)
+
     def _export_staged(self, day: datetime | date | int) -> None:
         day = WritableDB.normalize_date(day)
         db = self._connections.get(day)
