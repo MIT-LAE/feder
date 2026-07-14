@@ -101,6 +101,13 @@ def _validate_file_output_directory(cfg: Config, directory: str) -> Path:
     '--file-output-directory',
     help='Write completed historical trajectory batches as atomic NetCDF files in this directory'
 )
+@click.option(
+    '--file-output-max-trajectories',
+    type=click.IntRange(min=1),
+    default=10_000,
+    show_default=True,
+    help='Maximum buffered trajectories per aggregate NetCDF file in file-output mode.'
+)
 @click.argument(
     'source-name',
     type=click.Choice([s.source_name() for s in SOURCES]),
@@ -113,6 +120,7 @@ def run(
         start_time: str | None, end_time: str | None,
         file_cache: str | None,
         file_output_directory: str | None,
+        file_output_max_trajectories: int,
         source_name: str, glob_args: tuple[str, ...]
 ) -> None:
     source = SOURCES_BY_NAME[source_name]
@@ -253,7 +261,12 @@ def run(
                 processor = Processor(
                     cfg, data_source.SOURCE, name, historical, db, command_queue,
                     source_control=data_source.control,
-                    trajectory_sink=NetCDFFileTrajectorySink(db, output_directory, name),
+                    trajectory_sink=NetCDFFileTrajectorySink(
+                        db,
+                        output_directory,
+                        name,
+                        max_trajectories=file_output_max_trajectories,
+                    ),
                 )
                 processor.run()
                 if not db.is_empty():

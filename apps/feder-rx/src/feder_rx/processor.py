@@ -75,6 +75,7 @@ class Processor:
         self._fix_time_last_completion = None
         self._real_time_last_completion = datetime.now(timezone.utc)
         self._trajectory_count = 0
+        self._sink_finalized = False
 
         # Flow control: used only for historical processing. For historical
         # jobs, the receiver can process a *lot* of data very quickly (it
@@ -136,13 +137,17 @@ class Processor:
         return self.source_control is None or self.source_control.is_running
 
     def _ready_to_finish(self) -> bool:
-        return (
+        ready = (
             self._done_pending and
             not self._final_completion_pending and
             self.command_queue.empty() and
             len(self._trajectories) == 0 and
             self.trajectory_sink.pending_count() == 0
         )
+        if ready and not self._sink_finalized:
+            self.trajectory_sink.finalize()
+            self._sink_finalized = True
+        return ready and self._sink_finalized
 
     def _ok_to_complete(self) -> bool:
         # If there have been a lot of fixes since the last completion, we can

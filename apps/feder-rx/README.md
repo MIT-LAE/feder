@@ -15,6 +15,7 @@ feder-rx \
   --start-time 2026-07-01T00:00:00+00:00 \
   --end-time 2026-07-02T00:00:00+00:00 \
   --file-output-directory "${out}" \
+  --file-output-max-trajectories 10000 \
   contrails-api
 ```
 
@@ -27,7 +28,9 @@ File-output mode is deliberately finite and historical-only in v1:
 
 The output directory is created if needed, must be distinct from and not nested under any configured `[paths]` root, and must contain no visible `*.nc` files at startup. The recommended operational pattern is to create a unique output directory for each receiver run and pass that directory to one ingester run after the receiver exits successfully.
 
-Each completed batch is written to a hidden temporary file, fsynced best-effort, and published with an atomic `os.replace` to a visible name like:
+Completed trajectory batches are aggregated before being written to NetCDF. By default, `feder-rx` buffers up to 10,000 completed trajectories per output file; override this with `--file-output-max-trajectories N` if you need smaller or larger files. The threshold is deliberately simple: when the buffer reaches or exceeds the configured trajectory count, the receiver publishes one aggregate file. The final partial buffer is flushed before a successful finite receiver run exits.
+
+Each aggregate file is written to a hidden temporary file, fsynced best-effort, and published with an atomic `os.replace` to a visible name like:
 
 ```text
 rx-contrails-api-12345.00000001.nc
@@ -35,7 +38,7 @@ rx-contrails-api-12345.00000001.nc
 
 No manifest is written. The handoff contract is simply: visible, non-hidden `*.nc` files in the run directory are complete NetCDF trajectory-batch files. Hidden temporary files are implementation details and should not be consumed.
 
-If NetCDF writing or atomic publication fails, the receiver deletes its temporary file, logs the failure, and exits non-zero. Source trajectories are removed from receiver staging only after the corresponding NetCDF file has been successfully published.
+If NetCDF writing or atomic publication fails, the receiver deletes its temporary file, logs the failure, and exits non-zero. In aggregate file-output mode, completed trajectories are removed from receiver staging after they have been materialized into the sink's in-memory buffer so they cannot be rediscovered by later completion cycles. Because buffered trajectories may not yet have been durably published when a failure occurs, operators should only hand an output directory to `feder-ingest` after `feder-rx` exits successfully. If a receiver run fails, rerun the historical receiver job into a fresh output directory.
 
 ## NetCDF interchange format
 

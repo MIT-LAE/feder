@@ -31,6 +31,9 @@ class TrajectorySink(ABC):
     def pending_count(self) -> int:
         return 0
 
+    def finalize(self) -> None:
+        """Flush any sink-owned buffered trajectory state before shutdown."""
+
     def handle_rmq_message(self, message: rmq.Message) -> None:
         logger.warning('unexpected RMQ message "%s"', message)
 
@@ -82,15 +85,51 @@ class RabbitMQTrajectorySink(TrajectorySink):
 
 
 class NetCDFFileTrajectorySink(TrajectorySink):
-    """Trajectory sink that atomically publishes batches as NetCDF files."""
+    """Trajectory sink that atomically publishes aggregated batches as NetCDF files."""
 
-    def __init__(self, db: DB, output_directory: str | os.PathLike[str], receiver_name: str):
+    def __init__(
+            self,
+            db: DB,
+            output_directory: str | os.PathLike[str],
+            receiver_name: str,
+            max_trajectories: int = 10_000,
+    ):
+        if max_trajectories < 1:
+            raise ValueError("max_trajectories must be at least 1")
         self.db = db
         self.output_directory = Path(output_directory)
         self.receiver_name = receiver_name
+        self.max_trajectories = max_trajectories
         self._sequence = 0
+        self._buffered_trajectories: list[Trajectory] = []
+        self._buffered_trajectory_count = 0
 
     def publish_trajectories(self, source_ids: list[str], batch: TrajectoryBatch) -> None:
+        self._buffered_trajectories.extend(batch.trajectories)
+        self._buffered_trajectory_count = batch.trajectory_count
+
+        for source_id in source_ids:
+            self.db.delete_trajectory(source_id)
+
+        if len(self._buffered_trajectories) >= self.max_trajectories:
+            self._flush_buffer()
+
+    def finalize(self) -> None:
+        self._flush_buffer()
+
+    def _flush_buffer(self) -> None:
+        if len(self._buffered_trajectories) == 0:
+            return
+
+        batch = TrajectoryBatch(
+            trajectories=list(self._buffered_trajectories),
+            source=self.receiver_name,
+            trajectory_count=self._buffered_trajectory_count,
+        )
+        self._write_batch(batch)
+        self._buffered_trajectories.clear()
+
+    def _write_batch(self, batch: TrajectoryBatch) -> None:
         self._sequence += 1
         final_path = self.output_directory / f"{self.receiver_name}.{self._sequence:08d}.nc"
         tmp_path = self.output_directory / f".{self.receiver_name}.{self._sequence:08d}.nc.tmp.{os.getpid()}"
@@ -109,9 +148,6 @@ class NetCDFFileTrajectorySink(TrajectorySink):
             finally:
                 logger.exception("failed to publish NetCDF trajectory batch %s", final_path)
             raise
-
-        for source_id in source_ids:
-            self.db.delete_trajectory(source_id)
 
     @staticmethod
     def _fsync_file_best_effort(path: Path) -> None:

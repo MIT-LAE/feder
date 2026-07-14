@@ -72,7 +72,7 @@ def test_file_output_directory_validation(config, tmp_path):
         _validate_file_output_directory(config, str(nested))
 
 
-def test_netcdf_sink_atomic_publish_deletes_only_after_success(config, tmp_path, monkeypatch):
+def test_netcdf_sink_atomic_publish_failure_leaves_no_visible_file(config, tmp_path, monkeypatch):
     db = DB(config, "file-sink")
     db.save_position(
         source_id="DUMMY-001",
@@ -89,7 +89,7 @@ def test_netcdf_sink_atomic_publish_deletes_only_after_success(config, tmp_path,
         heading=None,
         on_ground=False,
     )
-    sink = NetCDFFileTrajectorySink(db, tmp_path, "rx-test")
+    sink = NetCDFFileTrajectorySink(db, tmp_path, "rx-test", max_trajectories=1)
     processor = Processor(
         config,
         DataSource.FLIGHTAWARE,
@@ -108,17 +108,60 @@ def test_netcdf_sink_atomic_publish_deletes_only_after_success(config, tmp_path,
     monkeypatch.setattr("feder_rx.sinks.write_trajectory_batch_netcdf", fail)
     with pytest.raises(OSError):
         processor._send_trajectories(source_ids)
-    assert db.count_entries() == 1
+    assert db.count_entries() == 0
     assert list(tmp_path.glob("*.nc")) == []
 
     monkeypatch.undo()
-    processor._send_trajectories(source_ids)
+    sink.finalize()
     assert db.count_entries() == 0
     files = sorted(tmp_path.glob("*.nc"))
     assert [p.name for p in files] == ["rx-test.00000002.nc"]
     batch = read_trajectory_batch_netcdf(files[0])
     assert batch.source == "rx-test"
     assert [t.model.source_id for t in batch.trajectories] == ["DUMMY-001"]
+
+
+def test_file_output_sink_aggregates_until_threshold(config, tmp_path):
+    db = DB(config, "file-aggregate")
+    for source_id in ["DUMMY-001", "DUMMY-002"]:
+        db.save_position(
+            source_id=source_id,
+            transponder_id="ABCDEF",
+            time=datetime(2025, 4, 1, 12, 0, tzinfo=timezone.utc),
+            orig="DUMA",
+            dest="DUMZ",
+            callsign="DUMMY",
+            aircraft_type=None,
+            lat=41.0,
+            lon=-95.0,
+            alt=35000,
+            alt_gnss=None,
+            heading=None,
+            on_ground=False,
+        )
+    sink = NetCDFFileTrajectorySink(db, tmp_path, "rx-aggregate", max_trajectories=2)
+    processor = Processor(
+        config,
+        DataSource.FLIGHTAWARE,
+        "rx-aggregate",
+        True,
+        db,
+        PriorityQueue(),
+        source_control=None,
+        trajectory_sink=sink,
+    )
+
+    processor._send_trajectories(["DUMMY-001"])
+    assert db.count_entries() == 1
+    assert list(tmp_path.glob("*.nc")) == []
+
+    processor._send_trajectories(["DUMMY-002"])
+    assert db.count_entries() == 0
+    files = sorted(tmp_path.glob("*.nc"))
+    assert [p.name for p in files] == ["rx-aggregate.00000001.nc"]
+    batch = read_trajectory_batch_netcdf(files[0])
+    assert [t.model.source_id for t in batch.trajectories] == ["DUMMY-001", "DUMMY-002"]
+    assert batch.trajectory_count == 2
 
 
 def test_file_output_processor_writes_sequence_and_finishes_empty(config, tmp_path):
@@ -168,6 +211,19 @@ def test_file_output_cli_requires_historical_range_and_rejects_file_sources(tmp_
     )
     assert result.exit_code == 1
 
+    result = runner.invoke(
+        feder_rx.run,
+        [
+            "-c", str(cfg),
+            "--file-output-directory", str(tmp_path / "out3"),
+            "--file-output-max-trajectories", "0",
+            "--start-time", "2025-04-01T12:00:00",
+            "--end-time", "2025-04-01T12:00:00",
+            "contrails-api",
+        ],
+    )
+    assert result.exit_code == 2
+
 
 def test_file_output_cli_constructs_no_rmq_or_liveness(tmp_path, monkeypatch):
     cfg = _config_file(tmp_path)
@@ -199,6 +255,7 @@ def test_file_output_cli_constructs_no_rmq_or_liveness(tmp_path, monkeypatch):
         [
             "-c", str(cfg),
             "--file-output-directory", str(out),
+            "--file-output-max-trajectories", "1",
             "--start-time", "2025-04-01T12:00:00",
             "--end-time", "2025-04-01T12:00:00",
             "contrails-api",
