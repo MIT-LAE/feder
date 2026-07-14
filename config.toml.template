@@ -48,6 +48,8 @@ data-lag = 0
 data-lag = "48 hours"
 api-key = "<fill in API key>"
 bounds = [-140.0, -45.0, 5.0, 65.0]  # [min_lon, max_lon, min_lat, max_lat]
+# Source Prometheus ports are optional. Historical receiver file-output jobs do
+# not start source Prometheus servers.
 prometheus-port = 19002
 
 [source.flightaware]
