@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@myself'
 created_date: '2026-07-20 20:17'
-updated_date: '2026-07-20 20:18'
+updated_date: '2026-07-20 20:19'
 labels:
   - ingester
   - scheduling
@@ -41,3 +41,15 @@ Extend finite file ingestion to drain completed scheduled receiver runs safely. 
 - [ ] #9 An empty ready queue still calls DBCache.force_publish so dirty durable staging from an earlier failed publication is retried.
 - [ ] #10 Automated tests cover fixed-snapshot and oldest-first behavior, strict entry validation, empty runs and queues, insertion and publication failures, process-publish-delete ordering, retained inputs, stopping at the first failure, and successful directory removal.
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Add the mutually exclusive --file-input-queue CLI mode and resolve its ready path from receiver.queue-directory under the same file-only configuration and path-safety rules.
+2. Define and test scheduled run-name parsing/ordering plus strict queue snapshots: ignore only permitted hidden temporary entries, reject unexpected visible top-level entries, and validate each run directory contains only regular visible NetCDF files.
+3. Add an explicit strict finite-ingestion policy to Processor so any trajectory insertion error propagates in file modes while live RabbitMQ processing retains log-and-continue behavior.
+4. Refactor file ingestion so queue mode creates one DBCache/Processor, snapshots ready directories once, and processes them oldest first without deleting inputs during decoding or database mutation.
+5. For each run, force-publish all pending database changes before deleting its files and directory; on any read, insert, or publish failure retain the run and stop before later directories. Treat empty run directories as valid commit units.
+6. Ensure an empty queue still force-publishes recovered dirty staging, and verify interruption/retry semantics remain duplicate-safe with partially updated staging.
+7. Add CLI and integration tests for ordering, fixed snapshots, strict validation, insertion failures, publication failures, process-publish-delete ordering, retained inputs, empty runs/queues, and successful cleanup; run ingester tests and relevant lint/type checks.
+<!-- SECTION:PLAN:END -->
