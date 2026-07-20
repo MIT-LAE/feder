@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@myself'
 created_date: '2026-07-20 20:17'
-updated_date: '2026-07-20 20:18'
+updated_date: '2026-07-20 20:19'
 labels:
   - receiver
   - contrails
@@ -41,3 +41,15 @@ Add a finite application-level receiver command for recurring cluster execution.
 - [ ] #10 A successfully retrieved and processed interval with no output NetCDF files is still published as an empty ready directory and advances the cursor.
 - [ ] #11 Automated tests cover bootstrap, corrupt state, cutoff flooring, chunk selection, no-work and ahead-of-cutoff behavior, unsupported sources, directory lifecycle, failure ordering, atomic cursor updates, and empty successful runs.
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Extend server configuration parsing and file-only requirements with receiver.queue-directory and receiver.max-run-duration, including the 24-hour default, positive whole-hour validation, and path-root isolation checks.
+2. Add the feder-rx-scheduled entry point and a small scheduled-run module that validates the required source argument, supports Contrails only, and exposes pure helpers for whole-hour cutoff and bounded interval selection.
+3. Implement versioned cursor loading, bootstrap validation, and atomic cursor persistence using a flushed temporary file and os.replace; distinguish absent state from malformed state and handle equal/ahead cutoffs without moving backward.
+4. Refactor the finite receiver execution path into reusable application code so scheduled mode can run one explicit [start, end) Contrails interval without constructing RabbitMQ or Prometheus services.
+5. Create sortable unique run names, write into queue/incomplete, remove incomplete output on handled failure, atomically rename successful runs into queue/ready, and only then advance the cursor. Preserve empty successful output directories.
+6. Add unit and CLI tests with injected time and mocked receiver execution for bootstrap, cursor validation, cutoff flooring, 24-hour bounding, no-work cases, unsupported sources, failure cleanup, publication ordering, cursor write failures, and empty runs.
+7. Update configuration examples and receiver documentation for the command and queue layout, then run the receiver/server tests and relevant lint/type checks.
+<!-- SECTION:PLAN:END -->
