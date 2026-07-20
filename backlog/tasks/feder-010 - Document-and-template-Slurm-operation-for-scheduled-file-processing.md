@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@myself'
 created_date: '2026-07-20 20:17'
-updated_date: '2026-07-20 20:18'
+updated_date: '2026-07-20 20:19'
 labels:
   - deployment
   - slurm
@@ -42,3 +42,14 @@ Provide operator-ready examples for running the scheduled Contrails receiver eve
 - [ ] #8 The documented directory layout and run naming convention match the implemented cursor, incomplete, and ready queue behavior.
 - [ ] #9 Shell templates receive syntax checks where available without requiring a Slurm installation in automated tests.
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. Review existing deploy assets, command installation paths, and file-only documentation so the cluster templates follow current project conventions without replacing site-specific configuration.
+2. Update config.toml.template and receiver/ingester documentation with queue configuration, directory layout, half-open run names, shared-filesystem atomic-rename assumptions, and one-time cursor bootstrap.
+3. Add receiver and ingester sbatch templates with distinct stable job names, singleton dependencies, finite commands, log paths, time limits, failure notification placeholders, and configurable account/partition/environment setup.
+4. Add cron-facing submission wrappers that use squeue as a best-effort pre-check before sbatch, while documenting singleton as the actual concurrency guarantee and avoiding shared-filesystem locks.
+5. Document six-hour receiver and daily ingester schedules, one-24-hour-chunk catch-up behavior, fixed ingestion snapshots, no-work exits, retained ready runs, duplicate-safe crash recovery, manual half-open recovery, and stale incomplete-directory cleanup.
+6. Add lightweight shell syntax checks where supported, verify all examples against the implemented CLI help/config names, and run documentation/config-related tests.
+<!-- SECTION:PLAN:END -->
