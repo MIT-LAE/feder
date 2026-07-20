@@ -1,9 +1,11 @@
 ---
 id: FEDER-008
 title: Add cursor-managed scheduled Contrails receiver runs
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@myself'
 created_date: '2026-07-20 20:17'
+updated_date: '2026-07-20 20:18'
 labels:
   - receiver
   - contrails
