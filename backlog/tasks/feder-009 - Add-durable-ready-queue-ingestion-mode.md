@@ -1,9 +1,11 @@
 ---
 id: FEDER-009
 title: Add durable ready-queue ingestion mode
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@myself'
 created_date: '2026-07-20 20:17'
+updated_date: '2026-07-20 20:18'
 labels:
   - ingester
   - scheduling
