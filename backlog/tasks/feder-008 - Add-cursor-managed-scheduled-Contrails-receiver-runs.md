@@ -1,11 +1,11 @@
 ---
 id: FEDER-008
 title: Add cursor-managed scheduled Contrails receiver runs
-status: In Progress
+status: Done
 assignee:
   - '@myself'
 created_date: '2026-07-20 20:17'
-updated_date: '2026-07-20 20:19'
+updated_date: '2026-07-21 06:56'
 labels:
   - receiver
   - contrails
@@ -29,17 +29,17 @@ Add a finite application-level receiver command for recurring cluster execution.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A feder-rx-scheduled command accepts a required source argument, supports contrails-api, and fails clearly for unsupported sources.
-- [ ] #2 Receiver configuration provides a queue directory and a configurable maximum run duration defaulting to 24 hours; the queue root is validated not to overlap configured data, staging, or scratch roots.
-- [ ] #3 When cursor state is absent, an explicit whole-hour UTC initial start is required; a valid initial cursor is persisted before the first download, while a malformed existing cursor fails without reinitialization.
-- [ ] #4 cursor.json contains version, source, and next_time fields and is updated by flushed temporary-file plus atomic rename.
-- [ ] #5 The availability cutoff is the whole-hour floor of current UTC time minus the configured source data lag, and the selected interval end is min(cursor + maximum duration, cutoff).
-- [ ] #6 A cursor equal to the cutoff exits successfully without creating a run; a cursor ahead of the cutoff logs a warning and exits successfully without moving backward.
-- [ ] #7 Each run writes to a unique incomplete directory named with its UTC [start, end) interval, source, and unique suffix, then atomically renames that directory into ready only after every requested hour succeeds.
-- [ ] #8 The cursor advances to the exclusive interval end only after the ready-directory rename succeeds; failures never advance it, so a crash window may cause duplicates but cannot cause a gap.
-- [ ] #9 Handled failures remove their incomplete directory, while abruptly abandoned incomplete directories are neither reused nor automatically deleted.
-- [ ] #10 A successfully retrieved and processed interval with no output NetCDF files is still published as an empty ready directory and advances the cursor.
-- [ ] #11 Automated tests cover bootstrap, corrupt state, cutoff flooring, chunk selection, no-work and ahead-of-cutoff behavior, unsupported sources, directory lifecycle, failure ordering, atomic cursor updates, and empty successful runs.
+- [x] #1 A feder-rx-scheduled command accepts a required source argument, supports contrails-api, and fails clearly for unsupported sources.
+- [x] #2 Receiver configuration provides a queue directory and a configurable maximum run duration defaulting to 24 hours; the queue root is validated not to overlap configured data, staging, or scratch roots.
+- [x] #3 When cursor state is absent, an explicit whole-hour UTC initial start is required; a valid initial cursor is persisted before the first download, while a malformed existing cursor fails without reinitialization.
+- [x] #4 cursor.json contains version, source, and next_time fields and is updated by flushed temporary-file plus atomic rename.
+- [x] #5 The availability cutoff is the whole-hour floor of current UTC time minus the configured source data lag, and the selected interval end is min(cursor + maximum duration, cutoff).
+- [x] #6 A cursor equal to the cutoff exits successfully without creating a run; a cursor ahead of the cutoff logs a warning and exits successfully without moving backward.
+- [x] #7 Each run writes to a unique incomplete directory named with its UTC [start, end) interval, source, and unique suffix, then atomically renames that directory into ready only after every requested hour succeeds.
+- [x] #8 The cursor advances to the exclusive interval end only after the ready-directory rename succeeds; failures never advance it, so a crash window may cause duplicates but cannot cause a gap.
+- [x] #9 Handled failures remove their incomplete directory, while abruptly abandoned incomplete directories are neither reused nor automatically deleted.
+- [x] #10 A successfully retrieved and processed interval with no output NetCDF files is still published as an empty ready directory and advances the cursor.
+- [x] #11 Automated tests cover bootstrap, corrupt state, cutoff flooring, chunk selection, no-work and ahead-of-cutoff behavior, unsupported sources, directory lifecycle, failure ordering, atomic cursor updates, and empty successful runs.
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -53,3 +53,25 @@ Add a finite application-level receiver command for recurring cluster execution.
 6. Add unit and CLI tests with injected time and mocked receiver execution for bootstrap, cursor validation, cutoff flooring, 24-hour bounding, no-work cases, unsupported sources, failure cleanup, publication ordering, cursor write failures, and empty runs.
 7. Update configuration examples and receiver documentation for the command and queue layout, then run the receiver/server tests and relevant lint/type checks.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+- Implemented durable scheduled Contrails cursor, isolated queue configuration, atomic ready publication, and tests.
+- Verified with `uv run ruff check ...` and full `uv run pytest` (114 passed, 1 skipped; RabbitMQ test service started locally).
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented FEDER-008 scheduled Contrails receiver runs.
+
+Changes:
+- Added `feder-rx-scheduled` with durable versioned cursor bootstrap/update, hourly availability cutoff, bounded intervals, and safe incomplete-to-ready publication ordering.
+- Added required scheduled queue configuration with root isolation and 24-hour default positive whole-hour run duration.
+- Documented queue operation and added cursor, lifecycle, failure-ordering, config, and CLI coverage.
+
+Tests:
+- `uv run ruff check apps/feder-rx/src/feder_rx/scheduled.py tests/feder_rx/test_scheduled.py libs/server/src/feder_server/config.py tests/server_lib/test_config_paths.py`
+- `uv run pytest` (114 passed, 1 skipped)
+<!-- SECTION:FINAL_SUMMARY:END -->
