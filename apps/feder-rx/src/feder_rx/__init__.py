@@ -36,6 +36,13 @@ __version__ = '1.2.1'
 logger = logging.getLogger(__name__)
 
 
+def _parse_utc_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 SOURCES = [
     ContrailsAPISource,
     CSVSource,
@@ -165,12 +172,12 @@ def run(
     end_datetime: datetime | None = None
     if start_time is not None and end_time is not None:
         try:
-            start_datetime = datetime.fromisoformat(start_time).replace(tzinfo=timezone.utc)
+            start_datetime = _parse_utc_time(start_time)
         except ValueError:
             logger.critical('invalid ISO 8601 time for "start-time"')
             sys.exit(1)
         try:
-            end_datetime = datetime.fromisoformat(end_time).replace(tzinfo=timezone.utc)
+            end_datetime = _parse_utc_time(end_time)
         except ValueError:
             logger.critical('invalid ISO 8601 time for "end-time"')
             sys.exit(1)
@@ -269,6 +276,8 @@ def run(
                     ),
                 )
                 processor.run()
+                if processor.failed:
+                    raise RuntimeError('historical source failed')
                 if not db.is_empty():
                     raise RuntimeError('file-output mode finished with non-empty receiver staging')
                 clean_stop = True
@@ -312,13 +321,15 @@ def run(
                     rmq, data_source.control, ingester_liveness.ok_check_interval
                 )
                 processor.run()
+                if processor.failed:
+                    raise RuntimeError('source failed')
 
             # If we get here without an exception, the ingester has
             # stopped cleanly.
             clean_stop = True
         except Exception:
             logger.exception('unhandled exception in receiver')
-            if file_output_mode:
+            if file_output_mode or historical:
                 sys.exit(1)
             if prom_server is not None:
                 error_counter.labels(source=name).inc()

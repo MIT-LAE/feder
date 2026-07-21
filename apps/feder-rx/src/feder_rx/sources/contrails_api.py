@@ -1,4 +1,6 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 import gc
 from io import BytesIO
 import logging
@@ -23,6 +25,25 @@ from ..utils import ceil_time
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class RetrievalFailure:
+    message: str
+    status_code: int | None = None
+    retry_after: timedelta | None = None
+
+    @property
+    def retryable(self) -> bool:
+        return (
+            self.status_code is None or
+            self.status_code in (
+                requests.codes.request_timeout,
+                requests.codes.not_found,
+                requests.codes.too_many_requests,
+            ) or
+            500 <= self.status_code < 600
+        )
+
+
 class ContrailsAPISource(DateSource):
     SOURCE = DataSource.CONTRAILS_API
     BATCH_SIZE = 100
@@ -37,8 +58,22 @@ class ContrailsAPISource(DateSource):
     # The Contrails API provides hourly ADS-B files.
     DATE_RESOLUTION = 'h'
     DATE_INTERVAL = timedelta(hours=1)
+    RETRIEVAL_ATTEMPTS = 5
+    RETRY_DELAY = timedelta(minutes=5)
+    MAX_RETRY_AFTER = timedelta(minutes=5)
+    REQUEST_TIMEOUT = 60
 
     def __init__(self, config: Config, queue: PriorityQueue, *args, **kwargs):
+        # DateSource historically rounded range boundaries. Contrails files are
+        # hourly, so silently changing a requested range could lose or add data.
+        start_time = kwargs.get('start_time')
+        end_time = kwargs.get('end_time')
+        if start_time is not None:
+            if end_time is None:
+                raise ValueError('Contrails historical end time is required')
+            for name, value in [('start time', start_time), ('end time', end_time)]:
+                if value.minute or value.second or value.microsecond:
+                    raise ValueError(f'Contrails historical {name} must be aligned to a whole UTC hour')
         super().__init__(config, queue, *args, **kwargs)
         self.api_key = config.credentials(self.SOURCE)['api_key']
         self.bounds = config.bounds(self.SOURCE)
@@ -70,40 +105,51 @@ class ContrailsAPISource(DateSource):
         else:
             self.run_live()
 
-    def retrieve_error(
-            self, t: datetime, status_code: int, retry: bool = False
-    ) -> bool:
-        match status_code:
-            case requests.codes.unauthorized:
+    def _retrieve_with_retries(self, t: datetime) -> pd.DataFrame | None:
+        for attempt in range(1, self.RETRIEVAL_ATTEMPTS + 1):
+            result = self._retrieve(t)
+            if not isinstance(result, RetrievalFailure):
+                return result
+
+            if not result.retryable:
                 self.queue.put(SourceErrorCommand(
-                    message='invalid credentials for Contrails API',
-                    stop=True
+                    message=f'failed to retrieve ADS-B data for {_format_time(t)}: {result.message}',
+                    stop=True,
                 ))
-                return False
-            case requests.codes.not_found:
-                logger.info('data not available yet...')
-                return True
-            case _:
+                return None
+
+            if attempt == self.RETRIEVAL_ATTEMPTS:
                 self.queue.put(SourceErrorCommand(
                     message=(
-                        f'failed to retrieve ADS-B Parquet file for {_format_time(t)}' +
-                        (' (waiting 5 minutes to try again...)' if retry else '')
+                        f'failed to retrieve ADS-B data for {_format_time(t)} '
+                        f'after {self.RETRIEVAL_ATTEMPTS} attempts: {result.message}'
                     ),
-                    stop=not retry
+                    stop=True,
                 ))
-                return retry
+                return None
+
+            delay = self.RETRY_DELAY
+            if result.retry_after is not None:
+                delay = min(result.retry_after, self.MAX_RETRY_AFTER)
+            logger.warning(
+                'retrieval of ADS-B data for %s failed (%s); retrying in %s',
+                _format_time(t), result.message, delay,
+            )
+            if self.wait_for(datetime.now(timezone.utc) + delay):
+                return None
+        return None
 
     def run_historical(self):
         request_time = self.start_time
         fix_count = 0
         latest_time = datetime(1, 1, 1, tzinfo=timezone.utc)
-        while request_time <= self.end_time:
-            df_or_status = self._retrieve(request_time)
-            if isinstance(df_or_status, int):
-                # TODO: CHECK RETURN VALUE AND WAIT FOR FIVE MINUTES IF WE'RE
-                # NOT QUITTING RIGHT AWAY.
-                self.retrieve_error(request_time, df_or_status)
-                break
+        while request_time < self.end_time:
+            df_or_failure = self._retrieve_with_retries(request_time)
+            if df_or_failure is None:
+                # A historical run is successful only when every requested
+                # hourly file was retrieved and processed. Do not emit DONE.
+                return
+            df_or_status = df_or_failure
             for cmd in self.process_df(df_or_status):
                 if self.stopped:
                     return
@@ -207,7 +253,6 @@ class ContrailsAPISource(DateSource):
             datetime.now(timezone.utc) - self.config.data_lag(self.SOURCE)
         )
         retrieval_time = ceil_time(retrieval_time, 'h')
-        retries = 0
         fix_count = 0
         latest_time = datetime(1, 1, 1, tzinfo=timezone.utc)
         while not self.stopped:
@@ -219,33 +264,13 @@ class ContrailsAPISource(DateSource):
             if self.wait_for(retrieval_time + self.config.data_lag(self.SOURCE)):
                 break
 
-            # Try retrieving the next file.
-            df_or_status = self._retrieve(retrieval_time)
-
-            # If the retrieval failed, we try again for the same file in 5
-            # minutes. After five failed attempts, we skip the file and wait
-            # for the next one.
-            if isinstance(df_or_status, int):
-                if retries >= 5:
-                    self.queue.put(SourceErrorCommand(
-                        message='skipping time after five retrieval attempts',
-                        stop=False
-                    ))
-                    retries = 0
-                    retrieval_time += self.DATE_INTERVAL
-                else:
-                    # retrieve_error returns False if the error is
-                    # unrecoverable.
-                    if not self.retrieve_error(retrieval_time, df_or_status, retry=True):
-                        self.queue.put(SourceErrorCommand(
-                            message=f'unrecoverable error retrieving data: {df_or_status}',
-                            stop=True
-                        ))
-                        break
-                    if self.wait_for(datetime.now(timezone.utc) + timedelta(minutes=5)):
-                        break
-                    retries += 1
-                continue
+            # Try retrieving the next Parquet file. A failed file is never
+            # skipped: source errors are terminal so downstream state cannot
+            # advance past an unknown gap.
+            df_or_failure = self._retrieve_with_retries(retrieval_time)
+            if df_or_failure is None:
+                return
+            df_or_status = df_or_failure
 
             logger.info('processing data for %s...', log_time)
 
@@ -276,7 +301,6 @@ class ContrailsAPISource(DateSource):
                 )
                 self.put(EndOfDayCommand(retrieval_time.date()))
 
-            retries = 0
             retrieval_time += self.DATE_INTERVAL
 
             # Don't keep the dataframe from the last timestep hanging around
@@ -290,7 +314,7 @@ class ContrailsAPISource(DateSource):
         # external signal or a failure to retrieve ADS-B data after repeated
         # retries.
 
-    def _retrieve(self, t: datetime) -> pd.DataFrame | int:
+    def _retrieve(self, t: datetime) -> pd.DataFrame | RetrievalFailure:
         # ISO 8601 (UTC)
         tstr = _format_time(t)
 
@@ -304,39 +328,76 @@ class ContrailsAPISource(DateSource):
 
         logger.info('retrieving Spire ADS-B data for %s', tstr)
 
-        r = requests.get(
-            'https://api.contrails.org/v1/adsb/telemetry',
-            params={'date': tstr},
-            headers={
-                'x-api-key': self.api_key,
-                'transfer-encoding': 'chunked'
-            },
-            stream=True
-        )
-        if r.status_code != requests.codes.ok:
-            logger.error(
-                'HTTP request to Contrails API failed (%s): %s',
-                r.status_code, r.reason
-            )
-            return r.status_code
-
-        # Retrieve data, simultaneously saving to cache file if required.
-        save_fp = None
-        data = BytesIO()
         try:
-            if self.file_cache is not None:
-                save_fp = open(self.cache_path(f'{tstr}.pq'), 'wb')
+            r = requests.get(
+                'https://api.contrails.org/v1/adsb/telemetry',
+                params={'date': tstr},
+                headers={
+                    'x-api-key': self.api_key,
+                    'transfer-encoding': 'chunked'
+                },
+                stream=True,
+                timeout=self.REQUEST_TIMEOUT,
+            )
+            if r.status_code != requests.codes.ok:
+                logger.error(
+                    'HTTP request to Contrails API failed (%s): %s',
+                    r.status_code, r.reason
+                )
+                return RetrievalFailure(
+                    f'HTTP {r.status_code}: {r.reason}',
+                    status_code=r.status_code,
+                    retry_after=_retry_after(r.headers.get('Retry-After')),
+                )
 
-            for chunk in r.iter_content(chunk_size=128):
-                data.write(chunk)
+            # Retrieve data, simultaneously saving to cache file if required.
+            save_fp = None
+            data = BytesIO()
+            try:
+                if self.file_cache is not None:
+                    save_fp = open(self.cache_path(f'{tstr}.pq'), 'wb')
+
+                for chunk in r.iter_content(chunk_size=128):
+                    data.write(chunk)
+                    if save_fp is not None:
+                        save_fp.write(chunk)
+            finally:
                 if save_fp is not None:
-                    save_fp.write(chunk)
-        finally:
-            if save_fp is not None:
-                save_fp.close()
+                    save_fp.close()
+        except requests.RequestException as exc:
+            logger.error('request to Contrails API failed: %s', exc)
+            return RetrievalFailure(str(exc))
 
         data.seek(0)
-        return pd.read_parquet(data, columns=self.COLUMNS)
+        try:
+            return pd.read_parquet(data, columns=self.COLUMNS)
+        except Exception as exc:
+            # A truncated response often surfaces only when the Parquet reader
+            # validates the footer. Treat it like a connection failure so a
+            # historical run cannot silently complete with a missing hour.
+            logger.error('failed to decode Contrails API response: %s', exc)
+            return RetrievalFailure(f'invalid Parquet response: {exc}')
+
+
+def _retry_after(
+        value: str | None, now: datetime | None = None
+) -> timedelta | None:
+    if value is None:
+        return None
+    try:
+        return timedelta(seconds=max(0, int(value)))
+    except ValueError:
+        pass
+
+    try:
+        retry_time = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_time.tzinfo is None:
+        retry_time = retry_time.replace(tzinfo=timezone.utc)
+    if now is None:
+        now = datetime.now(timezone.utc)
+    return max(retry_time.astimezone(timezone.utc) - now, timedelta(0))
 
 
 def _format_time(t: datetime) -> str:

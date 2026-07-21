@@ -15,6 +15,7 @@ from feder_rx.commands import BatchSourcePositionCommand, SourceDoneCommand, Sou
 from feder_rx.db import DB
 from feder_rx.processor import Processor
 from feder_rx.sinks import NetCDFFileTrajectorySink
+from feder_rx.sources.contrails_api import RetrievalFailure
 
 
 FILE_ONLY_CONFIG = """
@@ -316,7 +317,7 @@ def test_file_output_cli_constructs_no_rmq_or_liveness(tmp_path, monkeypatch):
             "--file-output-directory", str(out),
             "--file-output-max-trajectories", "1",
             "--start-time", "2025-04-01T12:00:00",
-            "--end-time", "2025-04-01T12:00:00",
+            "--end-time", "2025-04-01T13:00:00",
             "contrails-api",
         ],
     )
@@ -326,3 +327,28 @@ def test_file_output_cli_constructs_no_rmq_or_liveness(tmp_path, monkeypatch):
     assert len(files) == 1
     assert files[0].name.startswith("rx-contrails-api-")
     assert files[0].name.endswith(".00000001.nc")
+
+
+def test_file_output_cli_fails_for_incomplete_contrails_range(tmp_path, monkeypatch):
+    cfg = _config_file(tmp_path)
+    out = tmp_path / "out"
+    monkeypatch.setattr(feder_rx.ContrailsAPISource, "RETRIEVAL_ATTEMPTS", 1)
+    monkeypatch.setattr(
+        feder_rx.ContrailsAPISource,
+        "_retrieve",
+        lambda self, _t: RetrievalFailure("HTTP 503", status_code=503),
+    )
+
+    result = CliRunner().invoke(
+        feder_rx.run,
+        [
+            "-c", str(cfg),
+            "--file-output-directory", str(out),
+            "--start-time", "2025-04-01T12:00:00",
+            "--end-time", "2025-04-01T13:00:00",
+            "contrails-api",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert list(out.glob("*.nc")) == []

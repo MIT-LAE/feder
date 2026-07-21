@@ -76,6 +76,7 @@ class Processor:
         self._real_time_last_completion = datetime.now(timezone.utc)
         self._trajectory_count = 0
         self._sink_finalized = False
+        self.failed = False
 
         # Flow control: used only for historical processing. For historical
         # jobs, the receiver can process a *lot* of data very quickly (it
@@ -210,6 +211,7 @@ class Processor:
                 # Log errors and stop if requested.
                 logger.error('source error: %s', message)
                 if stop:
+                    self.failed = True
                     self._done = True
 
             case SourceDoneCommand(latest_time):

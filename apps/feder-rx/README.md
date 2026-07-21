@@ -22,6 +22,8 @@ feder-rx \
 File-output mode is deliberately finite and historical-only in v1:
 
 - both `--start-time` and `--end-time` are required;
+- Contrails historical ranges are UTC hourly half-open intervals `[start-time, end-time)`; both boundaries must fall exactly on a whole UTC hour, and the end-hour file is not requested;
+- every hourly file in the requested interval must be retrieved and processed for the run to succeed. Authentication and invalid requests fail immediately; missing, rate-limited, server, timeout, and connection failures retry up to five times (normally about five minutes apart, honoring a bounded `Retry-After`) and then cause a non-zero exit;
 - file/glob-only sources are rejected;
 - live receiver mode still uses RabbitMQ;
 - RabbitMQ and ingester Prometheus config are not required and no RabbitMQ client is constructed.
