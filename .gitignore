@@ -130,3 +130,7 @@ dmypy.json
 
 /.dir-locals.el
 /config*.toml
+
+.pi/
+.pi-subagents/
+
