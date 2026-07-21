@@ -1,0 +1,14 @@
+Implement a complete solution to <ISSUE-NUMBER> following all existing test
+and development conventions established in this project. Before considering
+the work done:
+
+  - Run the full test suite and ensure it passes.
+  - Confirm that any new code paths introduced are covered by tests.
+  - Commit the work with a clear message referencing the issue number.
+
+When the issue is resolved and committed, close the backlog issue and stop.
+Do not begin work on any other issue, and do not open new issues as a
+side-effect of this session.
+
+Do not delete the prompt file, any files in the .pi directory, or any other
+files unrelated to the work on the issue.
