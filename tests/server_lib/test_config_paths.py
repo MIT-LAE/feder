@@ -8,6 +8,7 @@ from feder_server import (
     FILE_ONLY_CONFIG_REQUIREMENTS,
     INGEST_CONFIG_REQUIREMENTS,
     RX_CONFIG_REQUIREMENTS,
+    SCHEDULED_RX_CONFIG_REQUIREMENTS,
     STATE_OF_FEDER_CONFIG_REQUIREMENTS,
 )
 
@@ -20,6 +21,8 @@ def _config_text(
         rabbitmq: bool = True,
         mailjet: bool = True,
         ingester_prometheus: bool = True,
+        receiver_queue: Path | None = None,
+        receiver_duration: str | None = None,
 ) -> str:
     staging_line = '' if staging is None else f'staging-directory = "{staging}"\n'
     rabbitmq_section = '''
@@ -43,11 +46,12 @@ prometheus-port = 19001
 ''' if ingester_prometheus else '''
 [ingester]
 '''
+    receiver_section = '' if receiver_queue is None else f'''\n[receiver]\nqueue-directory = "{receiver_queue}"\n{'' if receiver_duration is None else f'max-run-duration = "{receiver_duration}"'}\n'''
     return f'''
 [paths]
 data-directory = "{data}"
 {staging_line}scratch-directory = "{scratch}"
-{rabbitmq_section}{mailjet_section}{ingester_section}'''
+{rabbitmq_section}{mailjet_section}{ingester_section}{receiver_section}'''
 
 
 def test_config_requires_staging_directory(tmp_path):
@@ -76,6 +80,23 @@ def test_config_accepts_distinct_path_roots_and_ingester_defaults(tmp_path):
     assert cfg.scratch_directory == str(tmp_path / 'scratch')
     assert cfg.ingester_export_interval == Timedelta('1 hour')
     assert cfg.ingester_finalize_after == Timedelta('12 hours')
+
+
+def test_scheduled_receiver_requires_isolated_queue_and_valid_duration(tmp_path):
+    base = dict(
+        data=tmp_path / 'data', staging=tmp_path / 'staging', scratch=tmp_path / 'scratch',
+        rabbitmq=False, mailjet=False, ingester_prometheus=False,
+    )
+    with pytest.raises(SystemExit):
+        Config(config_text=_config_text(**base), requirements=SCHEDULED_RX_CONFIG_REQUIREMENTS)
+    with pytest.raises(SystemExit):
+        Config(config_text=_config_text(**base, receiver_queue=tmp_path / 'data' / 'queue'), requirements=SCHEDULED_RX_CONFIG_REQUIREMENTS)
+    with pytest.raises(SystemExit):
+        Config(config_text=_config_text(**base, receiver_queue=tmp_path / 'queue', receiver_duration='90 minutes'), requirements=SCHEDULED_RX_CONFIG_REQUIREMENTS)
+
+    cfg = Config(config_text=_config_text(**base, receiver_queue=tmp_path / 'queue'), requirements=SCHEDULED_RX_CONFIG_REQUIREMENTS)
+    assert cfg.receiver_queue_directory == str(tmp_path / 'queue')
+    assert cfg.receiver_max_run_duration == Timedelta('24 hours')
 
 
 def test_file_only_config_does_not_require_rabbitmq_prometheus_or_mailjet(tmp_path):

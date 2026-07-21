@@ -14,6 +14,13 @@ staging-directory = "/local/durable/feder-staging"
 # temporary clean snapshots; scratch may be cleared between restarts.
 scratch-directory = "/big/mcast/data/feder-scratch"
 
+# Required by feder-rx-scheduled. This durable queue root must not overlap any
+# path above. One complete receiver run is atomically moved into ready/ before
+# its cursor advances.
+[receiver]
+queue-directory = "/local/durable/feder-rx-queue"
+max-run-duration = "24 hours"
+
 # Required for live RabbitMQ receiver/ingester modes. Omit in finite
 # file-only workflows that use receiver file output and ingester file input.
 [rabbitmq]

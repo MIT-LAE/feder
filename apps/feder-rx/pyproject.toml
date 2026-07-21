@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 feder-rx = "feder_rx:run"
+feder-rx-scheduled = "feder_rx.scheduled:scheduled_run"
 
 [build-system]
 requires = ["hatchling"]

@@ -53,6 +53,7 @@ class ConfigRequirements:
     rabbitmq: bool = True
     ingester_prometheus: bool = True
     mailjet: bool = True
+    receiver_queue: bool = False
 
 
 STRICT_CONFIG_REQUIREMENTS = ConfigRequirements()
@@ -60,6 +61,12 @@ FILE_ONLY_CONFIG_REQUIREMENTS = ConfigRequirements(
     rabbitmq=False,
     ingester_prometheus=False,
     mailjet=False,
+)
+SCHEDULED_RX_CONFIG_REQUIREMENTS = ConfigRequirements(
+    rabbitmq=False,
+    ingester_prometheus=False,
+    mailjet=False,
+    receiver_queue=True,
 )
 RX_CONFIG_REQUIREMENTS = ConfigRequirements(
     rabbitmq=True,
@@ -137,11 +144,19 @@ class Config:
         self.data_directory: str = self._get_str('paths', 'data-directory')
         self.staging_directory: str = self._get_str('paths', 'staging-directory')
         self.scratch_directory: str = self._get_str('paths', 'scratch-directory')
-        validate_path_roots({
+        self.receiver_queue_directory: str | None = (
+            self._get_str('receiver', 'queue-directory')
+            if self.requirements.receiver_queue else
+            self._get_opt_str('receiver', 'queue-directory')
+        )
+        roots = {
             'paths/data-directory': self.data_directory,
             'paths/staging-directory': self.staging_directory,
             'paths/scratch-directory': self.scratch_directory,
-        })
+        }
+        if self.receiver_queue_directory is not None:
+            roots['receiver/queue-directory'] = self.receiver_queue_directory
+        validate_path_roots(roots)
 
     def _init_rabbitmq(self):
         if not self.requirements.rabbitmq:
@@ -172,6 +187,14 @@ class Config:
         self.ingester_finalize_after: Timedelta = self._get_interval(
             'ingester', 'finalize-after', default=_td(Timedelta('12 hours'))
         )
+        self.receiver_max_run_duration: Timedelta = self._get_interval(
+            'receiver', 'max-run-duration', default=_td(Timedelta('24 hours'))
+        )
+        if (
+                self.receiver_max_run_duration <= Timedelta(0) or
+                self.receiver_max_run_duration % Timedelta('1 hour') != Timedelta(0)
+        ):
+            raise ValueError('configuration value "receiver/max-run-duration" must be a positive whole number of hours')
         self._source_prometheus_ports: dict[DataSource, int | None] = self._get_sources_opt_int('prometheus-port')
         if self.requirements.mailjet:
             self.mailjet_api_key = self._get_str('mailjet', 'api_key')

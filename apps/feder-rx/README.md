@@ -42,6 +42,25 @@ No manifest is written. The handoff contract is simply: visible, non-hidden `*.n
 
 If NetCDF writing or atomic publication fails, the receiver deletes its temporary file, logs the failure, and exits non-zero. In aggregate file-output mode, completed trajectories are removed from receiver staging after they have been materialized into the sink's in-memory buffer so they cannot be rediscovered by later completion cycles. Because buffered trajectories may not yet have been durably published when a failure occurs, operators should only hand an output directory to `feder-ingest` after `feder-rx` exits successfully. If a receiver run fails, rerun the historical receiver job into a fresh output directory.
 
+## Scheduled Contrails runs
+
+`feder-rx-scheduled` performs one finite, cursor-managed Contrails interval per invocation. Configure an isolated queue root (it must not overlap any `[paths]` root):
+
+```toml
+[receiver]
+queue-directory = "/shared/feder/receiver-queue"
+max-run-duration = "24 hours" # positive whole number of hours
+```
+
+Bootstrap the queue once with an explicit whole-hour UTC start; later runs read the durable cursor and do not take this option:
+
+```bash
+feder-rx-scheduled --config /path/to/config.toml \
+  --initial-start-time 2026-07-01T00:00:00+00:00 contrails-api
+```
+
+The command floors `now - source.data-lag` to an hour and processes at most `max-run-duration`. It writes each run under `incomplete/`, then atomically moves the complete directory (including an intentionally empty successful run) to `ready/`. Only after that move does it atomically advance `cursor.json`; a crash may therefore repeat a run, but cannot create a gap. Handled failures remove their own incomplete directory; pre-existing incomplete directories are retained for operator inspection and are never reused.
+
 ## NetCDF interchange format
 
 Feder NetCDF files store the RabbitMQ-equivalent `TrajectoryBatch` payload as a CF-1.8 discrete sampling geometry contiguous ragged trajectory array:
