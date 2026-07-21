@@ -53,6 +53,30 @@ If an input file is not valid NetCDF, has the wrong Feder file type/version, is 
 
 No manifest is used. Visible, non-hidden `*.nc` files are the handoff contract between the receiver and ingester.
 
+## Scheduled ready-queue mode
+
+Use `--file-input-queue` to drain completed runs published by
+`feder-rx-scheduled` under `receiver.queue-directory/ready`:
+
+```bash
+feder-ingest --config /path/to/config.toml --file-input-queue
+```
+
+This is also finite and file-only: it starts neither RabbitMQ nor Prometheus.
+The receiver owns the queue root and creates the `ready` directory; the
+configuration must include `receiver.queue-directory`, which must not overlap
+any storage root. At startup the ingester takes one fixed snapshot of visible
+ready directories, validates scheduled Contrails run names, and processes the
+intervals oldest first. Hidden temporary entries are ignored; any other visible
+top-level entry is an error.
+
+A ready run is the commit unit. It may be empty, but otherwise can contain only
+visible regular `*.nc` files. The ingester processes every file, force-publishes
+all dirty database state, and only then deletes the files and run directory. A
+decode, validation, insertion, or publish error retains that complete run and
+stops before later runs, so rerunning the command safely retries it. An empty
+ready queue still force-publishes recovered dirty staging state.
+
 ## Recommended file-only operator workflow
 
 The recommended v1 cluster workflow is a finite two-job handoff:

@@ -62,6 +62,12 @@ FILE_ONLY_CONFIG_REQUIREMENTS = ConfigRequirements(
     ingester_prometheus=False,
     mailjet=False,
 )
+FILE_QUEUE_INGEST_CONFIG_REQUIREMENTS = ConfigRequirements(
+    rabbitmq=False,
+    ingester_prometheus=False,
+    mailjet=False,
+    receiver_queue=True,
+)
 SCHEDULED_RX_CONFIG_REQUIREMENTS = ConfigRequirements(
     rabbitmq=False,
     ingester_prometheus=False,

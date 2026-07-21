@@ -1,7 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import os
+from pathlib import Path
 from queue import PriorityQueue
+import re
+import shutil
 import signal
 import time
 
@@ -9,7 +12,8 @@ import click
 from prometheus_client import start_http_server
 
 from feder_server import (
-    logging_setup, Config, FILE_ONLY_CONFIG_REQUIREMENTS, INGEST_CONFIG_REQUIREMENTS,
+    logging_setup, Config, FILE_ONLY_CONFIG_REQUIREMENTS,
+    FILE_QUEUE_INGEST_CONFIG_REQUIREMENTS, INGEST_CONFIG_REQUIREMENTS,
     rmq_parameters, RMQ_TRAJECTORY_EXCHANGE, validate_path_roots,
     IngesterLivenessChecker, Message, TrajectoryBatch,
     error_counter, set_version, TimerThread
@@ -51,17 +55,36 @@ class CheckpointTimerThread(TimerThread):
     type=click.Path(path_type=str),
     help='Process visible *.nc trajectory-batch files from this directory and exit.'
 )
-def run(debug: bool, config: str | None, file_input_directory: str | None) -> None:
+@click.option(
+    '--file-input-queue',
+    is_flag=True,
+    help='Drain scheduled receiver ready runs and exit.'
+)
+def run(
+        debug: bool, config: str | None, file_input_directory: str | None,
+        file_input_queue: bool,
+) -> None:
     logging_setup(debug)
 
-    # Process configuration file.  Finite file-input mode is intentionally
-    # file-only: it must not require or construct RabbitMQ/Prometheus objects.
-    requirements = (
-        FILE_ONLY_CONFIG_REQUIREMENTS if file_input_directory is not None
-        else INGEST_CONFIG_REQUIREMENTS
-    )
+    if file_input_directory is not None and file_input_queue:
+        raise click.UsageError(
+            '--file-input-queue is mutually exclusive with --file-input-directory'
+        )
+
+    # Finite file modes are intentionally file-only: they must not require or
+    # construct RabbitMQ/Prometheus objects. Queue mode additionally requires
+    # the receiver-owned queue root in order to derive its ready directory.
+    if file_input_queue:
+        requirements = FILE_QUEUE_INGEST_CONFIG_REQUIREMENTS
+    elif file_input_directory is not None:
+        requirements = FILE_ONLY_CONFIG_REQUIREMENTS
+    else:
+        requirements = INGEST_CONFIG_REQUIREMENTS
     cfg = Config(config, requirements=requirements)
 
+    if file_input_queue:
+        _run_file_input_queue_mode(cfg)
+        return
     if file_input_directory is not None:
         _run_file_input_mode(cfg, file_input_directory)
         return
@@ -238,6 +261,111 @@ def _run_file_input_mode(cfg: Config, file_input_directory: str) -> None:
             logger.info('processed and removed NetCDF input file: %s', entry.path)
 
         db.force_publish()
+    except Exception:
+        error_counter.labels(source='ingester').inc()
+        raise
+    finally:
+        db.close()
+
+
+_RUN_DIRECTORY_RE = re.compile(
+    r'^contrails-api-(?P<start>\d{8}T\d{6}Z)-'
+    r'(?P<end>\d{8}T\d{6}Z)-(?P<run_id>[0-9a-f]{32})$'
+)
+
+
+def _parse_ready_run(entry: os.DirEntry[str]) -> tuple[datetime, datetime, str]:
+    """Validate and return the scheduled receiver interval for a ready run."""
+    match = _RUN_DIRECTORY_RE.fullmatch(entry.name)
+    if match is None or not entry.is_dir(follow_symlinks=False):
+        raise click.ClickException(f'unexpected ready queue entry: {entry.path}')
+    try:
+        start = datetime.strptime(match['start'], '%Y%m%dT%H%M%SZ').replace(
+            tzinfo=timezone.utc
+        )
+        end = datetime.strptime(match['end'], '%Y%m%dT%H%M%SZ').replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError as exc:
+        raise click.ClickException(f'invalid scheduled run name: {entry.name}') from exc
+    if (
+            start.minute or start.second or start.microsecond or
+            end.minute or end.second or end.microsecond or end <= start
+    ):
+        raise click.ClickException(f'invalid scheduled run interval: {entry.name}')
+    return start, end, entry.path
+
+
+def _ready_queue_directory(cfg: Config) -> str:
+    assert cfg.receiver_queue_directory is not None
+    ready = Path(cfg.receiver_queue_directory).expanduser() / 'ready'
+    if not ready.exists():
+        raise click.ClickException(f'receiver ready directory does not exist: {ready}')
+    if not ready.is_dir():
+        raise click.ClickException(f'receiver ready path is not a directory: {ready}')
+    return str(ready)
+
+
+def _validated_run_files(run_path: str) -> list[str]:
+    files = []
+    for entry in os.scandir(run_path):
+        if entry.name.startswith('.'):
+            continue
+        if not entry.is_file(follow_symlinks=False) or not entry.name.endswith('.nc'):
+            raise click.ClickException(f'unexpected ready run entry: {entry.path}')
+        files.append(entry.path)
+    return sorted(files)
+
+
+def _remove_ready_run(run_path: str) -> None:
+    # Visible entries were validated before publication. Hidden entries belong
+    # to the receiver's private temporary protocol and are removed only after
+    # the publication barrier along with the now-complete run directory.
+    shutil.rmtree(run_path)
+
+
+def _run_file_input_queue_mode(cfg: Config) -> None:
+    """Drain a fixed snapshot of receiver ready runs, one durable commit at a time."""
+    ready_dir = _ready_queue_directory(cfg)
+    # Snapshot and validate before mutating any database or input. Hidden
+    # receiver temporary entries are intentionally outside the handoff contract.
+    runs = [
+        _parse_ready_run(entry)
+        for entry in os.scandir(ready_dir)
+        if not entry.name.startswith('.')
+    ]
+    runs.sort(key=lambda run: (run[0], run[1], run[2]))
+
+    db = DBCache(
+        cfg.data_directory,
+        cfg.staging_directory,
+        cfg.scratch_directory,
+        export_interval=cfg.ingester_export_interval,
+        finalize_after=cfg.ingester_finalize_after,
+    )
+    processor = Processor(cfg, db, PriorityQueue(), None, strict_inserts=True)
+    try:
+        for _start, _end, run_path in runs:
+            files = _validated_run_files(run_path)
+            for path in files:
+                try:
+                    batch = read_trajectory_batch_netcdf(path)
+                except Exception as exc:
+                    raise click.ClickException(
+                        f'failed to read NetCDF trajectory batch {path}: {exc}'
+                    ) from exc
+                processor.process_trajectory_batch(batch)
+
+            # This is the commit barrier: input stays durable until every
+            # batch in the run is published as a public snapshot.
+            db.force_publish()
+            _remove_ready_run(run_path)
+            logger.info('published and removed ready receiver run: %s', run_path)
+
+        # A queue can be empty while staging remains dirty from an earlier
+        # failed publish; always retry it before this finite invocation exits.
+        if not runs:
+            db.force_publish()
     except Exception:
         error_counter.labels(source='ingester').inc()
         raise

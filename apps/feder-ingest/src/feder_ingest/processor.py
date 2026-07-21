@@ -28,12 +28,14 @@ class Processor:
             config: Config,
             db: DBCache,
             queue: PriorityQueue,
-            rmq: RMQ | None
+            rmq: RMQ | None,
+            strict_inserts: bool = False,
     ):
         self.config = config
         self.db = db
         self.queue = queue
         self.rmq = rmq
+        self.strict_inserts = strict_inserts
         self._trajectory_count = 0
         self._immediate_stop = Event()
         self._rx_trajectory_counts: defaultdict[str, int] = defaultdict(int)
@@ -105,6 +107,8 @@ class Processor:
             try:
                 self.db.add_trajectory(traj.model)
             except sqlite3.Error as exc:
+                if self.strict_inserts:
+                    raise
                 any_failed = True
                 logger.error(
                     'Database insert failed for ID: %s, exception: %s',
