@@ -14,9 +14,12 @@ staging-directory = "/local/durable/feder-staging"
 # temporary clean snapshots; scratch may be cleared between restarts.
 scratch-directory = "/big/mcast/data/feder-scratch"
 
-# Required by feder-rx-scheduled. This durable queue root must not overlap any
-# path above. One complete receiver run is atomically moved into ready/ before
-# its cursor advances.
+# Required by feder-rx-scheduled. This durable shared-filesystem queue root
+# must not overlap any path above. It must preserve directory fsync/atomic
+# rename semantics: one complete receiver run is atomically moved into ready/
+# before its cursor advances. Scheduled receiver jobs process at most this
+# duration (24 hours by default); Contrails source data is delayed by the
+# source.contrails-api data-lag below (48 hours in this template).
 [receiver]
 queue-directory = "/local/durable/feder-rx-queue"
 max-run-duration = "24 hours"

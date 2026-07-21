@@ -61,6 +61,8 @@ feder-rx-scheduled --config /path/to/config.toml \
 
 The command floors `now - source.data-lag` to an hour and processes at most `max-run-duration`. It writes each run under `incomplete/`, then atomically moves the complete directory (including an intentionally empty successful run) to `ready/`. Only after that move does it atomically advance `cursor.json`; a crash may therefore repeat a run, but cannot create a gap. Handled failures remove their own incomplete directory; pre-existing incomplete directories are retained for operator inspection and are never reused.
 
+For production Slurm schedules, use the receiver template and operational procedure in [`deploy/README-slurm.md`](../../deploy/README-slurm.md). It configures a six-hourly finite invocation without RabbitMQ or Prometheus.
+
 ## NetCDF interchange format
 
 Feder NetCDF files store the RabbitMQ-equivalent `TrajectoryBatch` payload as a CF-1.8 discrete sampling geometry contiguous ragged trajectory array:

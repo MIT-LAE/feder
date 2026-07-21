@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Install from cron every six hours, e.g.:
+# 0 */6 * * * /path/to/submit-feder-rx-scheduled
+# The squeue check avoids needless submissions; Slurm's singleton dependency
+# is the concurrency guarantee and does not use shared-filesystem locks.
+set -euo pipefail
+
+JOB_NAME="feder-rx-scheduled"
+SBATCH_TEMPLATE="REPLACE_WITH_DEPLOY_DIRECTORY/feder-rx-scheduled.sbatch.template"
+
+if squeue --noheader --name="${JOB_NAME}" --user="${USER}" | grep -q .; then
+    echo "${JOB_NAME} is already queued or running; not submitting" >&2
+    exit 0
+fi
+
+exec sbatch --dependency=singleton --job-name="${JOB_NAME}" "${SBATCH_TEMPLATE}"

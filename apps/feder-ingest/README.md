@@ -77,6 +77,8 @@ decode, validation, insertion, or publish error retains that complete run and
 stops before later runs, so rerunning the command safely retries it. An empty
 ready queue still force-publishes recovered dirty staging state.
 
+For production Slurm schedules, use the daily queue-drainer template and recovery procedure in [`deploy/README-slurm.md`](../../deploy/README-slurm.md). It is intentionally independent of the receiver's singleton job name, so a receiver and ingester may run concurrently.
+
 ## Recommended file-only operator workflow
 
 The recommended v1 cluster workflow is a finite two-job handoff:
