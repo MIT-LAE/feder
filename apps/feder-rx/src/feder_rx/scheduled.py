@@ -26,8 +26,9 @@ def _parse_whole_hour(value: str, field: str) -> datetime:
     except ValueError as exc:
         raise ValueError(f'{field} must be an ISO 8601 UTC whole hour') from exc
     if parsed.tzinfo is None:
-        raise ValueError(f'{field} must include a UTC offset')
-    parsed = parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
     if parsed.minute or parsed.second or parsed.microsecond:
         raise ValueError(f'{field} must be a whole UTC hour')
     return parsed
@@ -172,7 +173,10 @@ def _execute_file_receiver(
 @click.command(name='feder-rx-scheduled')
 @click.option('--debug/--no-debug', default=False, help='Set logging level to DEBUG.')
 @click.option('--config', '-c', help='Path to Feder configuration file')
-@click.option('--initial-start-time', help='Required UTC whole-hour cursor bootstrap time.')
+@click.option(
+    '--initial-start-time',
+    help='Required whole-hour cursor bootstrap time; interpreted as UTC.',
+)
 @click.argument('source')
 def scheduled_run(
         debug: bool, config: str | None, initial_start_time: str | None, source: str

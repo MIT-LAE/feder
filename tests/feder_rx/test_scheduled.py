@@ -39,7 +39,7 @@ def test_bootstrap_persists_before_receiver_and_bounds_interval(tmp_path):
         assert state['next_time'] == '2025-04-01T00:00:00+00:00'
         calls.append((start, end, output))
 
-    assert run_scheduled(cfg, CONTRAILS_SOURCE, '2025-04-01T00:00:00+00:00', receiver, _time('2025-04-03T05:34:00'))
+    assert run_scheduled(cfg, CONTRAILS_SOURCE, '2025-04-01T00:00:00', receiver, _time('2025-04-03T05:34:00'))
     start, end, output = calls[0]
     assert (start, end) == (_time('2025-04-01T00:00:00'), _time('2025-04-02T00:00:00'))
     assert output.parent.name == 'incomplete'
@@ -127,7 +127,7 @@ queue-directory = "{tmp_path / 'scheduled-queue'}"
         lambda _config, start, end, output: calls.append((start, end, output)),
     )
     result = CliRunner().invoke(scheduled_run, [
-        '--config', str(config), '--initial-start-time', '2025-04-01T00:00:00+00:00', CONTRAILS_SOURCE,
+        '--config', str(config), '--initial-start-time', '2025-04-01T00:00:00', CONTRAILS_SOURCE,
     ])
     assert result.exit_code == 0, result.output
     assert len(calls) == 1
@@ -137,6 +137,11 @@ def test_cursor_write_is_atomic_and_initial_time_is_required(tmp_path, monkeypat
     cfg = _cfg(tmp_path)
     with pytest.raises(ValueError, match='initial-start-time is required'):
         run_scheduled(cfg, CONTRAILS_SOURCE, None, lambda *_: None, _time('2025-04-01T04:00:00'))
+    with pytest.raises(ValueError, match='whole UTC hour'):
+        run_scheduled(
+            cfg, CONTRAILS_SOURCE, '2025-04-01T00:30', lambda *_: None,
+            _time('2025-04-01T04:00:00'),
+        )
 
     calls = []
     original_replace = __import__('feder_rx.scheduled', fromlist=['os']).os.replace
