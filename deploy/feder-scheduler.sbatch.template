@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=feder-ingest-ready-queue
+#SBATCH --job-name=feder-scheduler
 #SBATCH --account=REPLACE_WITH_ACCOUNT
 #SBATCH --partition=REPLACE_WITH_PARTITION
 #SBATCH --time=REPLACE_WITH_TIME_LIMIT
-#SBATCH --output=REPLACE_WITH_LOG_DIRECTORY/feder-ingest-ready-queue-%j.out
+#SBATCH --output=REPLACE_WITH_LOG_DIRECTORY/feder-scheduler-%j.out
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=REPLACE_WITH_FAILURE_EMAIL
 
@@ -12,13 +12,11 @@
 set -euo pipefail
 
 FEDER_REPOSITORY="REPLACE_WITH_FEDER_REPOSITORY"
-FEDER_CONFIG="REPLACE_WITH_CONFIG_PATH"
+SCHEDULER_CONFIG="REPLACE_WITH_CONFIG_PATH"
+SBATCH_PATH="REPLACE_WITH_SBATCH_PATH"
 # Load the site's modules or activate its environment here, for example:
 # module load python/3.13
 # source /path/to/venv/bin/activate
 
-# This finite command snapshots ready/ once, ingests complete runs oldest first,
-# force-publishes, and retains the current run if any step fails.  It can run
-# concurrently with the receiver because their singleton names are separate.
-uv --directory "${FEDER_REPOSITORY}" run feder-ingest \
-    --config "${FEDER_CONFIG}" --file-input-queue
+uv --directory "${FEDER_REPOSITORY}" run feder-scheduler \
+    --schedule "${SCHEDULER_CONFIG}" --sbatch-dir "${SBATCH_PATH}"

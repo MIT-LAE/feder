@@ -60,5 +60,7 @@ files = [
     { filename = "apps/feder-rx/src/feder_rx/__init__.py" },
     { filename = "apps/state-of-feder/pyproject.toml" },
     { filename = "apps/state-of-feder/src/state_of_feder/__init__.py" },
+    { filename = "apps/feder-scheduler/pyproject.toml" },
+    { filename = "apps/feder-scheduler/src/feder_scheduler/__init__.py" },
     { filename = "docs/feder.html" }
 ]

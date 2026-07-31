@@ -1,7 +1,7 @@
 [project]
-name = "state-of-feder"
+name = "feder-scheduler"
 version = "1.2.1"
-description = "Feder status email sender"
+description = "Feder Slurm scheduler"
 readme = "README.md"
 authors = [
     { name = "Ian Ross", email = "iross@mit.edu" }
@@ -9,12 +9,11 @@ authors = [
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "click>=8.1.8",
-    "mailjet-rest>=1.4.0",
     "feder-server",
 ]
 
 [project.scripts]
-state-of-feder = "state_of_feder:run"
+feder-scheduler = "feder_scheduler:run"
 
 [build-system]
 requires = ["hatchling"]
@@ -24,4 +23,4 @@ build-backend = "hatchling.build"
 feder-server = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/state_of_feder"]
+packages = ["src/feder_scheduler"]

@@ -4,7 +4,6 @@
 #SBATCH --partition=REPLACE_WITH_PARTITION
 #SBATCH --time=REPLACE_WITH_TIME_LIMIT
 #SBATCH --output=REPLACE_WITH_LOG_DIRECTORY/feder-rx-scheduled-%j.out
-#SBATCH --error=REPLACE_WITH_LOG_DIRECTORY/feder-rx-scheduled-%j.err
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=REPLACE_WITH_FAILURE_EMAIL
 

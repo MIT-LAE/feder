@@ -15,6 +15,7 @@ members = [
     "feder-ingest",
     "feder-root",
     "feder-rx",
+    "feder-scheduler",
     "feder-server",
     "state-of-feder",
 ]
@@ -459,6 +460,21 @@ requires-dist = [
     { name = "prometheus-client", specifier = ">=0.21.1" },
     { name = "pyarrow", specifier = ">=19.0.1" },
     { name = "requests", specifier = ">=2.32.3" },
+]
+
+[[package]]
+name = "feder-scheduler"
+version = "1.2.1"
+source = { editable = "apps/feder-scheduler" }
+dependencies = [
+    { name = "click" },
+    { name = "feder-server" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.1.8" },
+    { name = "feder-server", editable = "libs/server" },
 ]
 
 [[package]]
@@ -1683,12 +1699,14 @@ version = "1.2.1"
 source = { editable = "apps/state-of-feder" }
 dependencies = [
     { name = "click" },
+    { name = "feder-server" },
     { name = "mailjet-rest" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1.8" },
+    { name = "feder-server", editable = "libs/server" },
     { name = "mailjet-rest", specifier = ">=1.4.0" },
 ]
 

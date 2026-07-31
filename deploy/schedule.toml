@@ -1,0 +1,4 @@
+feder-rx-scheduled = ["00:00", "06:00", "12:00", "18:00"]
+feder-ingest-ready-queue = ["03:00"]
+state-of-feder = ["22:00"]
+
