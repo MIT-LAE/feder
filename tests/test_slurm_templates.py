@@ -54,7 +54,6 @@ def test_sbatch_templates_expose_required_site_configuration(
         '--partition=REPLACE_WITH_PARTITION',
         '--time=REPLACE_WITH_TIME_LIMIT',
         '--output=REPLACE_WITH_LOG_DIRECTORY',
-        '--error=REPLACE_WITH_LOG_DIRECTORY',
         '--mail-type=FAIL',
         '--mail-user=REPLACE_WITH_FAILURE_EMAIL',
     ):
